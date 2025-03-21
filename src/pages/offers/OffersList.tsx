@@ -24,6 +24,9 @@ export default function OffersList() {
   const [selectedStatus, setSelectedStatus] = useState<string>('');
   const [selectedProjectType, setSelectedProjectType] = useState<string>('');
 
+  const [productNames, setProductNames] = useState<Record<string, string>>({});
+  const [projectTypeNames, setProjectTypeNames] = useState<Record<string, string>>({});
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -92,6 +95,36 @@ export default function OffersList() {
           projectTypesMap[projectType.id] = projectType;
         });
         setProjectTypes(projectTypesMap);
+
+        // Fetch product categories for name mapping
+        const { data: productCategories, error: productError } = await supabase
+          .from('product_categories')
+          .select('id, name');
+
+        if (productError) {
+          console.error('Error fetching product categories:', productError);
+        } else {
+          const productMap: Record<string, string> = {};
+          productCategories?.forEach(product => {
+            productMap[product.id] = product.name;
+          });
+          setProductNames(productMap);
+        }
+
+        // Fetch project types for name mapping
+        const { data: projectTypesNames, error: projectTypeError } = await supabase
+          .from('project_types')
+          .select('id, name');
+
+        if (projectTypeError) {
+          console.error('Error fetching project types:', projectTypeError);
+        } else {
+          const projectTypeMap: Record<string, string> = {};
+          projectTypesNames?.forEach(type => {
+            projectTypeMap[type.id] = type.name;
+          });
+          setProjectTypeNames(projectTypeMap);
+        }
       } catch (err) {
         console.error('Error in fetchData:', err);
         setError('An unexpected error occurred');
@@ -145,7 +178,7 @@ export default function OffersList() {
   const totalOffers = filteredOffers.length;
   const approvedOffers = filteredOffers.filter(offer => offer.status === 'Approved').length;
   const conversionRate = totalOffers > 0 ? Math.round((approvedOffers / totalOffers) * 100) : 0;
-  const pendingOffers = filteredOffers.filter(offer => offer.status === 'Pending Approval').length;
+  const pendingOffers = filteredOffers.filter(offer => offer.status === 'Pending').length;
   
   // Update the accepted value calculation to handle null values
   const acceptedValue = filteredOffers
@@ -290,7 +323,7 @@ export default function OffersList() {
               <div className="flex items-center">
                 <div className="w-3 h-3 rounded-full bg-yellow-400 mr-2"></div>
                 <span className="text-sm text-gray-600">
-                  {filteredOffers.filter(o => o.status === 'Pending Approval').length} Pending
+                  {filteredOffers.filter(o => o.status === 'Pending').length} Pending
                 </span>
               </div>
               <div className="flex items-center">
@@ -411,7 +444,7 @@ export default function OffersList() {
                   >
                     <option value="">All Statuses</option>
                     <option value="Draft">Draft</option>
-                    <option value="Pending Approval">Pending Approval</option>
+                    <option value="Pending">Pending</option>
                     <option value="Approved">Approved</option>
                     <option value="Rejected">Rejected</option>
                   </select>
@@ -459,7 +492,7 @@ export default function OffersList() {
                   )}
                   {selectedProjectType && (
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                      Project: {projectTypes[selectedProjectType]?.name}
+                      Project: {projectTypeNames[selectedProjectType]}
                       <button
                         onClick={() => setSelectedProjectType('')}
                         className="ml-2 inline-flex text-green-400 hover:text-green-600"

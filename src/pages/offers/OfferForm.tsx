@@ -1,13 +1,13 @@
-import React, { useState, type ChangeEvent, type FormEvent, type ReactElement, useEffect } from 'react';
+import { useState, type ChangeEvent, type FormEvent, type ReactElement, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Plus, Trash2, ChevronDown, ChevronUp, Calendar, FileText, Package } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronUp, Calendar, FileText } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import Layout from '../../components/Layout';
-import type { Offer, ContractType, CostCenter, OfferStatus } from '../../types/offer';
-import type { Product, LicenseType, ProjectType } from '../../types/product';
+import type { Offer, ContractType, OfferStatus } from '../../types/offer';
+import type { Product, LicenseType } from '../../types/product';
 
 // Form state interface matching database schema
 interface FormState extends Omit<Offer, 'id' | 'created_by' | 'created_at' | 'updated_at'> {
@@ -16,7 +16,6 @@ interface FormState extends Omit<Offer, 'id' | 'created_by' | 'created_at' | 'up
   order_date: string | null;
   sales_person: string;
   contract_type: ContractType;
-  cost_center: CostCenter;
   project_description: string;
   go_live_date: string | null;
   approver: string;
@@ -61,7 +60,6 @@ const initialFormData: FormState = {
   order_date: null,
   sales_person: '',
   contract_type: 'Implementation',
-  cost_center: 'AROGO',
   project_description: '',
   go_live_date: null,
   approver: '',
@@ -106,6 +104,11 @@ export default function OfferForm(): ReactElement {
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory | null>(null);
 
+  // Product-related state
+  const [products, setProducts] = useState<Product[]>([]);
+  const [licenseTypes, setLicenseTypes] = useState<LicenseType[]>([]);
+  const [selectedLicenseType, setSelectedLicenseType] = useState<LicenseType | null>(null);
+
   // Calculate total values
   const calculateTotals = () => {
     let totalValue = 0;
@@ -117,10 +120,7 @@ export default function OfferForm(): ReactElement {
       const quantity = license.quantity || 0;
       const discount = license.discount || 0;
       
-      // Apply annual multiplier if annual commitment is selected
-      const multiplier = license.annualCommitment ? 12 : 1;
-      
-      const itemValue = price * quantity * multiplier;
+      const itemValue = price * quantity;
       const itemDiscount = itemValue * (discount / 100);
       const finalItemValue = itemValue - itemDiscount;
       const itemMargin = finalItemValue * 0.3; // 30% margin
@@ -159,20 +159,16 @@ export default function OfferForm(): ReactElement {
     setLicenses(licenses.filter(license => license.id !== id));
   };
 
-  // Product-related state
-  const [products, setProducts] = useState<Product[]>([]);
-  const [licenseTypes, setLicenseTypes] = useState<LicenseType[]>([]);
-  const [projectTypes, setProjectTypes] = useState<ProjectType[]>([]);
-  const [availableProjectTypes, setAvailableProjectTypes] = useState<ProjectType[]>([]);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [selectedLicenseType, setSelectedLicenseType] = useState<LicenseType | null>(null);
-
   // Fetch existing offer data if we're in edit mode
   useEffect(() => {
     const fetchOffer = async () => {
       if (id) {
         try {
           setLoading(true);
+          // First fetch categories to have them available
+          await fetchCategories();
+          
+          console.log('Fetching offer with ID:', id);
           const { data, error: fetchError } = await supabase
             .from('offers')
             .select('*')
@@ -186,13 +182,70 @@ export default function OfferForm(): ReactElement {
           }
 
           if (data) {
+            console.log('Loaded offer data:', data);
+            
+            // Get product category from product id if available
+            let productCategory = null;
+            
+            // Extract project type code if available
+            let projectType = null;
+            
+            // If there's a product ID, get its category
+            if (data.product_id) {
+              try {
+                console.log('Looking up product category for product ID:', data.product_id);
+                const { data: productData, error: productError } = await supabase
+                  .from('product_categories')
+                  .select('code, name')
+                  .eq('id', data.product_id)
+                  .single();
+                
+                if (!productError && productData?.code) {
+                  productCategory = productData.code;
+                  console.log('Found product category:', productCategory, 'name:', productData.name);
+                } else {
+                  console.error('Error or no data when getting product category:', productError);
+                }
+              } catch (err) {
+                console.error('Error fetching product category:', err);
+              }
+            } else {
+              console.log('No product_id in the offer data');
+            }
+            
+            // If there's a project type ID, get its code
+            if (data.project_type_id) {
+              try {
+                console.log('Looking up project type code for ID:', data.project_type_id);
+                const { data: projectTypeData, error: projectTypeError } = await supabase
+                  .from('project_types')
+                  .select('code, name')
+                  .eq('id', data.project_type_id)
+                  .single();
+                
+                if (!projectTypeError && projectTypeData?.code) {
+                  // Convert database code to UI code
+                  projectType = convertDbCodeToUiCode(projectTypeData.code);
+                  console.log('Found project type db code:', projectTypeData.code, 
+                              'converted to UI code:', projectType, 
+                              'name:', projectTypeData.name);
+                } else {
+                  console.error('Error getting project type or no data:', projectTypeError);
+                }
+              } catch (err) {
+                console.error('Error fetching project type:', err);
+              }
+            } else {
+              console.log('No project_type_id found in offer data');
+            }
+
+            // Update form data with all fields, including product category and project type
             setFormData({
               customer_name: data.customer_name,
               cui: data.cui,
               order_date: data.order_date || null,
               sales_person: data.sales_person,
-              contract_type: data.contract_type,
-              cost_center: data.cost_center,
+              contract_type: 'Default', // Use a default value to avoid enum errors
               project_description: data.project_description || '',
               go_live_date: data.go_live_date || null,
               approver: data.approver || '',
@@ -207,31 +260,44 @@ export default function OfferForm(): ReactElement {
               annual_commitment: data.annual_commitment || false,
               margin_pct: data.margin_pct || 30,
               discount_pct: data.discount_pct || 0,
-              product_category: data.product_category || null,
-              project_type: data.project_type || null
+              product_category: productCategory,
+              project_type: projectType
             });
 
-            // If product_id exists, set the selectedProduct
-            if (data.product_id) {
-              await fetchProducts();
-              const product = products.find(p => p.id === data.product_id);
-              if (product) {
-                setSelectedProduct(product);
-                await fetchLicenseTypes();
-                
-                // If license_type_id exists, set the selectedLicenseType
-                if (data.license_type_id) {
-                  const licenseType = licenseTypes.find(lt => lt.id === data.license_type_id);
-                  if (licenseType) {
-                    setSelectedLicenseType(licenseType);
-                  }
-                }
-                
-                // If project_type_id exists, fetch available project types
-                if (data.product_id) {
-                  await fetchAvailableProjectTypes(data.product_id);
-                }
-              }
+            console.log('Form data set with project_type:', projectType, 'and project_type_id:', data.project_type_id);
+
+            // Fetch associated licenses
+            const { data: licenseData, error: licenseError } = await supabase
+              .from('offer_licenses')
+              .select('*')
+              .eq('offer_id', id);
+
+            if (licenseError) {
+              console.error('Error fetching licenses:', licenseError);
+              setError('Failed to load licenses');
+              return;
+            }
+
+            if (licenseData && licenseData.length > 0) {
+              // Convert license data to the format expected by the form
+              const formattedLicenses = licenseData.map((license, index) => ({
+                id: index + 1,
+                type: license.license_type_id,
+                quantity: license.quantity,
+                price: license.price.toString(),
+                annualCommitment: license.annual_commitment,
+                monthlyPayment: license.monthly_payment,
+                discount: license.discount,
+                totalValue: license.total_value.toString(),
+                marginValue: license.margin_value.toString()
+              }));
+              setLicenses(formattedLicenses);
+            }
+
+            // If product category is set, fetch license types
+            if (productCategory) {
+              console.log('Fetching license types for saved product category:', productCategory);
+              await fetchLicenseTypesForCategory(productCategory);
             }
 
             // Expand approval section if approver or date is set
@@ -254,7 +320,6 @@ export default function OfferForm(): ReactElement {
   // Fetch products on component mount
   useEffect(() => {
     fetchProducts();
-    fetchProjectTypes();
   }, []);
 
   const fetchProducts = async () => {
@@ -274,74 +339,6 @@ export default function OfferForm(): ReactElement {
       setProducts(data || []);
     } catch (err) {
       console.error('Error in fetchProducts:', err);
-    }
-  };
-
-  // Fetch all project types
-  const fetchProjectTypes = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('project_types')
-        .select('*')
-        .order('name');
-
-      if (error) {
-        console.error('Error fetching project types:', error);
-        return;
-      }
-
-      setProjectTypes(data || []);
-    } catch (err) {
-      console.error('Error in fetchProjectTypes:', err);
-    }
-  };
-
-  // Fetch available project types for a product
-  const fetchAvailableProjectTypes = async (productId: string) => {
-    try {
-      console.log('Fetching project types for product:', productId);
-      const { data, error } = await supabase
-        .from('product_project_types')
-        .select(`
-          project_type_id,
-          project_types (
-            id,
-            name,
-            description,
-            code
-          )
-        `)
-        .eq('product_id', productId);
-
-      if (error) {
-        console.error('Error fetching project types:', error);
-        return;
-      }
-
-      console.log('Fetched project types data:', data);
-      
-      // Extract project types from the joined data
-      const projectTypes = data?.map(item => {
-        const projectType = (item as any).project_types;
-        return {
-          id: projectType.id,
-          name: projectType.name,
-          description: projectType.description,
-          code: projectType.code,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-      }) || [];
-
-      console.log('Processed project types:', projectTypes);
-      setAvailableProjectTypes(projectTypes);
-      
-      // Reset project type selection if current selection is not available for new product
-      if (formData.project_type_id && !projectTypes.some(pt => pt.id === formData.project_type_id)) {
-        setFormData(prev => ({ ...prev, project_type_id: null }));
-      }
-    } catch (err) {
-      console.error('Error in fetchAvailableProjectTypes:', err);
     }
   };
 
@@ -377,7 +374,7 @@ export default function OfferForm(): ReactElement {
 
       console.log('Found category ID:', categoryData.id);
 
-      // Then fetch license types using the category ID
+      // Then fetch license types using the category ID (product_id in license_types is actually the category ID)
       const { data, error } = await supabase
         .from('license_types')
         .select('*')
@@ -566,6 +563,12 @@ export default function OfferForm(): ReactElement {
       return;
     }
     
+    // Special handling for project_type
+    if (name === 'project_type') {
+      handleProjectTypeChange(e as React.ChangeEvent<HTMLSelectElement>);
+      return;
+    }
+    
     // Handle other inputs
     setFormData(prev => ({ ...prev, [name]: value }));
   };
@@ -596,10 +599,94 @@ export default function OfferForm(): ReactElement {
     // Clear license types first
     setLicenseTypes([]);
     
-    // Then fetch new license types if a category is selected
+    // If category is selected, try to get the product ID right away
     if (category) {
+      // Get the product category ID
+      (async () => {
+        try {
+          console.log('Looking up product ID for category:', category);
+          const { data: categoryData, error } = await supabase
+            .from('product_categories')
+            .select('id')
+            .eq('code', category)
+            .single();
+          
+          if (!error && categoryData) {
+            const product_id = categoryData.id;
+            console.log('Found product ID:', product_id);
+            // Update the product_id in the form
+            setFormData(prev => ({ ...prev, product_id: product_id }));
+          }
+        } catch (err) {
+          console.error('Error getting product ID from category:', err);
+        }
+      })();
+      
+      // Then fetch new license types
       setTimeout(() => fetchLicenseTypes(), 0);
     }
+  };
+
+  // Create a separate function for handling project type changes
+  const handleProjectTypeChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const projectTypeCode = e.target.value;
+    console.log('Selected project type code from dropdown:', projectTypeCode);
+    
+    // First update the project_type code in form data right away
+    setFormData(prev => ({ ...prev, project_type: projectTypeCode }));
+    
+    if (!projectTypeCode) {
+      console.log('No project type selected, clearing project_type_id');
+      setFormData(prev => ({ ...prev, project_type_id: null }));
+      return;
+    }
+    
+    // Convert from UI project type to database code
+    const dbProjectTypeCode = projectTypeCode === 'PROJECT_IMPLEMENTATION' 
+      ? 'IMPLEMENTATION' 
+      : projectTypeCode === 'PROJECT_LOCALIZATION' 
+        ? 'LOCALIZATION' 
+        : projectTypeCode;
+    
+    console.log('Converted to database project type code:', dbProjectTypeCode);
+    
+    try {
+      // Look up the project type ID
+      console.log('Looking up project type ID for code:', dbProjectTypeCode);
+      const { data: projectTypeData, error } = await supabase
+        .from('project_types')
+        .select('id, code, name')
+        .eq('code', dbProjectTypeCode)
+        .single();
+      
+      if (error) {
+        console.error('Error getting project type ID:', error);
+        return;
+      }
+      
+      if (projectTypeData) {
+        const projectTypeId = projectTypeData.id;
+        console.log('Found project type ID:', projectTypeId, 'for code:', projectTypeData.code, 'name:', projectTypeData.name);
+        
+        // Important: Update the project_type_id in form data right away
+        setFormData(prev => ({ ...prev, project_type_id: projectTypeId }));
+      } else {
+        console.error('No project type found for code:', dbProjectTypeCode);
+      }
+    } catch (err) {
+      console.error('Error getting project type ID:', err);
+    }
+  };
+
+  // Convert from database project type code to UI display code
+  const convertDbCodeToUiCode = (dbCode: string | null): string | null => {
+    if (!dbCode) return null;
+    
+    return dbCode === 'IMPLEMENTATION' 
+      ? 'PROJECT_IMPLEMENTATION' 
+      : dbCode === 'LOCALIZATION' 
+        ? 'PROJECT_LOCALIZATION' 
+        : dbCode;
   };
 
   const handleLicenseTypeChange = (e: ChangeEvent<HTMLSelectElement>) => {
@@ -631,15 +718,6 @@ export default function OfferForm(): ReactElement {
         formData.margin_pct
       );
     }
-  };
-
-  const handleProjectTypeChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    const projectTypeId = e.target.value;
-    
-    setFormData(prev => ({ 
-      ...prev, 
-      project_type_id: projectTypeId || null
-    }));
   };
 
   const handleUsersChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -732,35 +810,98 @@ export default function OfferForm(): ReactElement {
     }));
   };
 
-  const formatDataForSubmission = (data: FormState, status: OfferStatus) => {
+  const formatDataForSubmission = async (data: FormState, status: OfferStatus) => {
     if (!user?.id) {
       console.error('User ID is missing!');
       throw new Error('User ID is required');
     }
 
-    return {
+    const totals = calculateTotals();
+    
+    // Get product_id from the product_category if needed
+    let product_id = data.product_id;
+    if (data.product_category && !product_id) {
+      try {
+        console.log('Getting product_id from category:', data.product_category);
+        const { data: categoryData, error } = await supabase
+          .from('product_categories')
+          .select('id, code, name')
+          .eq('code', data.product_category)
+          .single();
+          
+        if (!error && categoryData) {
+          product_id = categoryData.id;
+          console.log('Found product_id:', product_id, 'for category:', categoryData.code, 'name:', categoryData.name);
+        } else {
+          console.error('Failed to get product_id for category:', data.product_category, 'Error:', error);
+        }
+      } catch (err) {
+        console.error('Error getting product ID from category:', err);
+      }
+    }
+    
+    // Get project_type_id from the project_type if needed
+    let project_type_id = data.project_type_id;
+    console.log('Initial project_type_id from form data:', project_type_id);
+    console.log('Project type code from form data:', data.project_type);
+    
+    if (data.project_type && !project_type_id) {
+      try {
+        // Convert from UI project type to database code
+        const dbProjectTypeCode = data.project_type === 'PROJECT_IMPLEMENTATION'
+          ? 'IMPLEMENTATION'
+          : data.project_type === 'PROJECT_LOCALIZATION'
+            ? 'LOCALIZATION'
+            : data.project_type;
+        
+        console.log('Looking up project_type_id for code:', dbProjectTypeCode, '(converted from', data.project_type, ')');
+        
+        const { data: projectTypeData, error } = await supabase
+          .from('project_types')
+          .select('id, code, name')
+          .eq('code', dbProjectTypeCode)
+          .single();
+          
+        if (!error && projectTypeData) {
+          project_type_id = projectTypeData.id;
+          console.log('Found project_type_id:', project_type_id, 'for code:', projectTypeData.code, 'name:', projectTypeData.name);
+        } else {
+          console.error('Failed to get project_type_id for code:', dbProjectTypeCode, 'Error:', error);
+        }
+      } catch (err) {
+        console.error('Error getting project type ID from code:', err);
+      }
+    }
+
+    console.log('Final product_id that will be saved:', product_id);
+    console.log('Final project_type_id that will be saved:', project_type_id);
+
+    // Create the final data object to save
+    const finalData = {
       customer_name: data.customer_name,
       cui: data.cui,
       order_date: data.order_date,
       sales_person: data.sales_person,
-      contract_type: data.contract_type,
-      cost_center: data.cost_center,
+      contract_type: 'Default', // Use a default value that won't cause ENUM errors
       project_description: data.project_description || null,
       go_live_date: data.go_live_date,
       approver: data.approver || null,
       approval_date: data.approval_date,
       status,
-      value: data.value,
-      product_id: data.product_id,
-      license_type_id: data.license_type_id,
-      number_of_users: data.number_of_users,
-      duration_months: data.duration_months,
-      project_type_id: data.project_type_id,
-      annual_commitment: data.annual_commitment,
+      value: parseFloat(totals.finalTotal),
+      product_id, // Directly use the resolved product_id
+      license_type_id: licenses[0]?.type || null,
+      number_of_users: licenses[0]?.quantity || null,
+      duration_months: licenses[0]?.monthlyPayment ? 12 : 1,
+      project_type_id, // Directly use the resolved project_type_id
+      annual_commitment: licenses.some(l => l.annualCommitment),
       margin_pct: data.margin_pct,
       discount_pct: data.discount_pct,
       created_by: user.id
     };
+
+    console.log('Full data being saved to offers table:', finalData);
+    return finalData;
   };
 
   const handleSaveDraft = async (): Promise<void> => {
@@ -778,7 +919,20 @@ export default function OfferForm(): ReactElement {
         return;
       }
 
-      const formattedData = formatDataForSubmission(formData, 'Draft');
+      // Validate licenses before saving
+      const validLicenses = licenses.filter(license => 
+        license.type && license.type.trim() !== ''
+      );
+
+      if (validLicenses.length === 0) {
+        setError('At least one license with a valid license type is required');
+        return;
+      }
+
+      const formattedData = await formatDataForSubmission(formData, 'Draft');
+      console.log('Formatted data for saving:', formattedData);
+      
+      let offerId: string;
       
       if (id) {
         // Update existing offer
@@ -792,15 +946,60 @@ export default function OfferForm(): ReactElement {
           setError(updateError.message);
           return;
         }
+        offerId = id;
       } else {
         // Create new offer
-        const { error: insertError } = await supabase
+        const { data, error: insertError } = await supabase
           .from('offers')
-          .insert([formattedData]);
+          .insert([formattedData])
+          .select()
+          .single();
 
         if (insertError) {
           console.error('Error creating offer:', insertError);
           setError(insertError.message);
+          return;
+        }
+        offerId = data.id;
+      }
+
+      // Delete existing licenses if updating
+      if (id) {
+        const { error: deleteError } = await supabase
+          .from('offer_licenses')
+          .delete()
+          .eq('offer_id', offerId);
+
+        if (deleteError) {
+          console.error('Error deleting existing licenses:', deleteError);
+          setError('Failed to update licenses');
+          return;
+        }
+      }
+
+      // Insert only valid licenses
+      const licenseData = validLicenses.map(license => ({
+        offer_id: offerId,
+        license_type_id: license.type,
+        quantity: Number(license.quantity),
+        price: Number(license.price),
+        annual_commitment: Boolean(license.annualCommitment),
+        monthly_payment: Boolean(license.monthlyPayment),
+        discount: Number(license.discount),
+        total_value: Number(license.totalValue),
+        margin_value: Number(license.marginValue)
+      }));
+
+      console.log('Saving license data:', licenseData);
+
+      if (licenseData.length > 0) {
+        const { error: licenseError } = await supabase
+          .from('offer_licenses')
+          .insert(licenseData);
+
+        if (licenseError) {
+          console.error('Error saving licenses:', licenseError);
+          setError('Failed to save licenses: ' + licenseError.message);
           return;
         }
       }
@@ -820,41 +1019,96 @@ export default function OfferForm(): ReactElement {
     setError(null);
 
     try {
-      const offerData = {
-        ...formData,
-        order_date: formData.order_date,
-        go_live_date: formData.go_live_date,
-        approval_date: formData.approval_date,
-        created_by: user?.id,
-        value: parseFloat(totals.finalTotal),
-        margin_pct: formData.margin_pct,
-        discount_pct: formData.discount_pct,
-        annual_commitment: licenses.some(l => l.annualCommitment),
-        license_type_id: licenses[0]?.type || null,
-        number_of_users: licenses[0]?.quantity || null,
-        duration_months: licenses[0]?.monthlyPayment ? 12 : 1,
-        project_type_id: formData.project_type_id
-      };
+      if (!formData.customer_name || !formData.cui) {
+        setError('Customer Name and CUI are required fields');
+        setLoading(false);
+        return;
+      }
 
+      // Validate licenses before saving
+      const validLicenses = licenses.filter(license => 
+        license.type && license.type.trim() !== ''
+      );
+
+      if (validLicenses.length === 0) {
+        setError('At least one license with a valid license type is required');
+        setLoading(false);
+        return;
+      }
+
+      const formattedData = await formatDataForSubmission(formData, 'Pending' as OfferStatus);
+      console.log('Formatted data for submission:', formattedData);
+      
+      let offerId: string;
+      
       if (id) {
         const { error: updateError } = await supabase
           .from('offers')
-          .update(offerData)
+          .update(formattedData)
           .eq('id', id);
 
-        if (updateError) throw updateError;
+        if (updateError) {
+          console.error('Error updating offer:', updateError);
+          throw updateError;
+        }
+        offerId = id;
       } else {
-        const { error: insertError } = await supabase
+        const { data, error: insertError } = await supabase
           .from('offers')
-          .insert([offerData]);
+          .insert([formattedData])
+          .select()
+          .single();
 
-        if (insertError) throw insertError;
+        if (insertError) {
+          console.error('Error creating offer:', insertError);
+          throw insertError;
+        }
+        offerId = data.id;
+      }
+
+      // Delete existing licenses if updating
+      if (id) {
+        const { error: deleteError } = await supabase
+          .from('offer_licenses')
+          .delete()
+          .eq('offer_id', offerId);
+
+        if (deleteError) {
+          console.error('Error deleting existing licenses:', deleteError);
+          throw deleteError;
+        }
+      }
+
+      // Insert only valid licenses
+      const licenseData = validLicenses.map(license => ({
+        offer_id: offerId,
+        license_type_id: license.type,
+        quantity: Number(license.quantity),
+        price: Number(license.price),
+        annual_commitment: Boolean(license.annualCommitment),
+        monthly_payment: Boolean(license.monthlyPayment),
+        discount: Number(license.discount),
+        total_value: Number(license.totalValue),
+        margin_value: Number(license.marginValue)
+      }));
+
+      console.log('Saving license data:', licenseData);
+
+      if (licenseData.length > 0) {
+        const { error: licenseError } = await supabase
+          .from('offer_licenses')
+          .insert(licenseData);
+
+        if (licenseError) {
+          console.error('Error saving licenses:', licenseError);
+          throw licenseError;
+        }
       }
 
       navigate('/offers');
     } catch (err) {
       console.error('Error saving offer:', err);
-      setError('Failed to save offer. Please try again.');
+      setError('Failed to save offer: ' + (err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -864,7 +1118,6 @@ export default function OfferForm(): ReactElement {
   useEffect(() => {
     fetchCategories();
     fetchProducts();
-    fetchProjectTypes();
   }, []);
 
   // Add additional effect to fetch license types when product category changes
@@ -874,6 +1127,104 @@ export default function OfferForm(): ReactElement {
       fetchLicenseTypes();
     }
   }, [formData.product_category]);
+
+  // Update useEffect to also make sure the project type gets resolved when the form data is updated
+  useEffect(() => {
+    if (formData.project_type) {
+      console.log('Project type in form data changed to:', formData.project_type);
+      
+      // Only resolve the ID if it's not already set
+      if (!formData.project_type_id) {
+        console.log('Project type ID not set, looking it up...');
+        (async () => {
+          try {
+            // Convert from UI project type to database code
+            const dbProjectTypeCode = formData.project_type === 'PROJECT_IMPLEMENTATION'
+              ? 'IMPLEMENTATION'
+              : formData.project_type === 'PROJECT_LOCALIZATION'
+                ? 'LOCALIZATION'
+                : formData.project_type;
+            
+            console.log('Looking up project_type_id for code:', dbProjectTypeCode, '(converted from', formData.project_type, ')');
+            
+            const { data: projectTypeData, error } = await supabase
+              .from('project_types')
+              .select('id, code, name')
+              .eq('code', dbProjectTypeCode)
+              .single();
+            
+            if (!error && projectTypeData) {
+              const projectTypeId = projectTypeData.id;
+              console.log('Found project_type_id:', projectTypeId, 'for code:', projectTypeData.code, 'name:', projectTypeData.name);
+              setFormData(prev => ({ ...prev, project_type_id: projectTypeId }));
+            } else {
+              console.error('Error looking up project type ID:', error);
+            }
+          } catch (err) {
+            console.error('Error looking up project type ID:', err);
+          }
+        })();
+      }
+    }
+  }, [formData.project_type]);
+
+  // Debugging effect to log changes in project_type_id
+  useEffect(() => {
+    console.log('Current project_type_id in form state:', formData.project_type_id);
+  }, [formData.project_type_id]);
+
+  // Fetch license types for a specific category
+  const fetchLicenseTypesForCategory = async (categoryCode: string) => {
+    try {
+      if (!categoryCode) {
+        console.error('No category code provided');
+        setLicenseTypes([]);
+        return;
+      }
+
+      console.log('Fetching license types for category:', categoryCode);
+      
+      // Get the product category ID
+      const { data: categoryData, error: categoryError } = await supabase
+        .from('product_categories')
+        .select('id')
+        .eq('code', categoryCode)
+        .single();
+
+      if (categoryError) {
+        console.error('Error fetching category:', categoryError);
+        setLicenseTypes([]);
+        return;
+      }
+
+      if (!categoryData?.id) {
+        console.error('No category found for code:', categoryCode);
+        setLicenseTypes([]);
+        return;
+      }
+
+      console.log('Found category ID:', categoryData.id);
+
+      // Then fetch license types using the category ID (product_id in license_types is actually the category ID)
+      const { data, error } = await supabase
+        .from('license_types')
+        .select('*')
+        .eq('product_id', categoryData.id)
+        .order('name');
+
+      if (error) {
+        console.error('Error fetching license types:', error);
+        setLicenseTypes([]);
+        return;
+      }
+
+      console.log(`Fetched ${categoryCode} license types:`, data);
+      setLicenseTypes(data || []);
+    } catch (err) {
+      console.error('Error in fetchLicenseTypesForCategory:', err);
+      setLicenseTypes([]);
+    }
+  };
 
   if (loading) {
     return (
@@ -1130,7 +1481,8 @@ export default function OfferForm(): ReactElement {
                                       if (l.id === license.id) {
                                         const basePrice = selectedType.monthly_price || 0;
                                         const quantity = l.quantity || 1;
-                                        const subtotal = basePrice * quantity;
+                                        const multiplier = l.annualCommitment ? 12 : 1;
+                                        const subtotal = basePrice * quantity * multiplier;
                                         const discountValue = subtotal * (l.discount / 100);
                                         const total = (subtotal - discountValue).toFixed(2);
                                         const margin = (Number(total) * 0.3).toFixed(2);
@@ -1141,6 +1493,21 @@ export default function OfferForm(): ReactElement {
                                           price: basePrice.toString(),
                                           totalValue: total,
                                           marginValue: margin
+                                        };
+                                      }
+                                      return l;
+                                    });
+                                    setLicenses(updatedLicenses);
+                                  } else {
+                                    // Handle case where no license type is selected (empty selection)
+                                    const updatedLicenses = licenses.map(l => {
+                                      if (l.id === license.id) {
+                                        return {
+                                          ...l,
+                                          type: '',
+                                          price: '',
+                                          totalValue: '',
+                                          marginValue: ''
                                         };
                                       }
                                       return l;

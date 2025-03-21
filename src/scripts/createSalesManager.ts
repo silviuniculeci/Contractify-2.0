@@ -1,11 +1,11 @@
 import { supabase } from '../lib/supabase'
 
-async function createSalesManager(
+const createSalesManager = async (
   email: string,
   password: string,
   firstName: string,
   lastName: string
-) {
+) => {
   try {
     // 1. Create the user in Auth
     const { data: authData, error: authError } = await supabase.auth.signUp({

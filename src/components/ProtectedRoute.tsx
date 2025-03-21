@@ -2,6 +2,7 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import LoadingSpinner from './LoadingSpinner'
 import '../styles/LoadingSpinner.css'
+import { Loader2 } from '@mantine/core'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
@@ -13,8 +14,8 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   if (loading) {
     return (
-      <div className="spinner-container">
-        <LoadingSpinner size="large" />
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     )
   }

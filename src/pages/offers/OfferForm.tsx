@@ -1,13 +1,23 @@
-import { useState, type ChangeEvent, type FormEvent, type ReactElement, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Plus, Trash2, ChevronDown, ChevronUp, Calendar, FileText } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import { Textarea } from '../../components/ui/textarea';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Switch } from '../../components/ui/switch';
+import { toast } from 'sonner';
+import { Loader2, Plus, Trash2, Save, ArrowLeft } from 'lucide-react';
+import { cn } from '../../lib/utils';
+import { Offer, License, Product, ProjectType } from '../../types/offer';
+import { formatCurrency } from '../../lib/utils';
+import Layout from '../../components/Layout';
+import { Plus as LucidePlus, ChevronDown, ChevronUp, Calendar, FileText } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
-import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabase';
-import Layout from '../../components/Layout';
-import type { Offer, ContractType, OfferStatus } from '../../types/offer';
-import type { Product, LicenseType } from '../../types/product';
 
 // Form state interface matching database schema
 interface FormState extends Omit<Offer, 'id' | 'created_by' | 'created_at' | 'updated_at'> {
@@ -82,7 +92,28 @@ export default function OfferForm(): ReactElement {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useAuth();
-  const [formData, setFormData] = useState<FormState>(initialFormData);
+  const [formData, setFormData] = useState<Offer>({
+    ...initialFormData,
+    contract_type: 'Implementation',
+    status: 'Draft',
+    value: null,
+    product_id: null,
+    license_type_id: null,
+    number_of_users: null,
+    duration_months: null,
+    project_type_id: null,
+    annual_commitment: false,
+    margin_pct: 30,
+    discount_pct: 0,
+    product_category: null,
+    project_type: null
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [projectTypes, setProjectTypes] = useState<ProjectType[]>([]);
+  const [availableProjectTypes, setAvailableProjectTypes] = useState<ProjectType[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [productInfoOpen, setProductInfoOpen] = useState(true);
@@ -105,7 +136,6 @@ export default function OfferForm(): ReactElement {
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory | null>(null);
 
   // Product-related state
-  const [products, setProducts] = useState<Product[]>([]);
   const [licenseTypes, setLicenseTypes] = useState<LicenseType[]>([]);
   const [selectedLicenseType, setSelectedLicenseType] = useState<LicenseType | null>(null);
 
@@ -1248,7 +1278,7 @@ export default function OfferForm(): ReactElement {
         <div className="space-y-1">
           <div className="text-gray-500 text-sm font-medium px-2 py-1">Offers</div>
           <div className="text-blue-600 bg-blue-50 rounded px-2 py-1 flex items-center space-x-2 text-sm font-medium">
-            <Plus size={16} />
+            <LucidePlus size={16} />
             <span>New Offer</span>
           </div>
         </div>
@@ -1442,7 +1472,7 @@ export default function OfferForm(): ReactElement {
                       onClick={addLicense}
                       className="inline-flex items-center justify-center px-3 py-1 bg-blue-50 text-blue-600 rounded text-sm font-medium"
                     >
-                      <Plus size={14} className="mr-1" />
+                      <LucidePlus size={14} className="mr-1" />
                       Add License
                     </button>
                   </div>

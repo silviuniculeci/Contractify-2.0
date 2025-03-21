@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { 
   FileText, 
   User, 
@@ -13,12 +12,9 @@ import { useAuth } from '../contexts/AuthContext';
 export default function Sidebar() {
   const { user, signOut } = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
-  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/login');
   };
 
   if (!user) return null;

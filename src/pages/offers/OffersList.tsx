@@ -1,11 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { FileText, Plus, TrendingUp, Archive, Clock, DollarSign, Search, Filter, Package, Calendar } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import Layout from '../../components/Layout';
 import type { Offer, ContractType } from '../../types/offer';
 import type { Product, LicenseType, ProjectType } from '../../types/product';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { toast } from 'sonner';
+import { Loader2 } from 'lucide-react';
+import { cn } from '../../lib/utils';
+import { formatCurrency } from '../../lib/utils';
 
 export default function OffersList() {
   const { user } = useAuth();

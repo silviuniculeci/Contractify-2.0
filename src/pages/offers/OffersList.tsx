@@ -1,19 +1,21 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { FileText, Plus, TrendingUp, Archive, Clock, DollarSign, Search, Filter, Package, Calendar } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import Layout from '../../components/Layout';
-import type { Offer, ContractType } from '../../types/offer';
-import type { Product, LicenseType, ProjectType } from '../../types/product';
+import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { Offer } from '../../types/offer';
 import { formatCurrency } from '../../lib/utils';
+import Layout from '../../components/Layout';
+import type { ContractType } from '../../types/offer';
+import type { Product, LicenseType, ProjectType } from '../../types/product';
+import { FileText } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function OffersList() {
   const { user } = useAuth();
@@ -244,7 +246,7 @@ export default function OffersList() {
               <div className="p-5">
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
-                    <Archive className="h-6 w-6 text-gray-400" />
+                    <FileText className="h-6 w-6 text-gray-400" />
                   </div>
                   <div className="ml-5 w-0 flex-1">
                     <dl>
@@ -263,7 +265,7 @@ export default function OffersList() {
               <div className="p-5">
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
-                    <TrendingUp className="h-6 w-6 text-gray-400" />
+                    <FileText className="h-6 w-6 text-gray-400" />
                   </div>
                   <div className="ml-5 w-0 flex-1">
                     <dl>
@@ -282,7 +284,7 @@ export default function OffersList() {
               <div className="p-5">
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
-                    <DollarSign className="h-6 w-6 text-gray-400" />
+                    <FileText className="h-6 w-6 text-gray-400" />
                   </div>
                   <div className="ml-5 w-0 flex-1">
                     <dl>
@@ -306,7 +308,7 @@ export default function OffersList() {
               <div className="p-5">
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
-                    <Clock className="h-6 w-6 text-gray-400" />
+                    <FileText className="h-6 w-6 text-gray-400" />
                   </div>
                   <div className="ml-5 w-0 flex-1">
                     <dl>
@@ -577,7 +579,7 @@ export default function OffersList() {
                             </p>
                             {offer.product_id && (
                               <p className="text-xs text-gray-500 mt-1 flex items-center">
-                                <Package className="h-3 w-3 mr-1" />
+                                <FileText className="h-3 w-3 mr-1" />
                                 {products[offer.product_id]?.name} 
                                 {offer.license_type_id && licenseTypes[offer.license_type_id] && 
                                   ` - ${licenseTypes[offer.license_type_id].name}`

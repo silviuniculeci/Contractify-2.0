@@ -8,10 +8,12 @@ import {
   Plus
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useState } from 'react';
 
 export default function Sidebar() {
   const { user, signOut } = useAuth();
   const location = useLocation();
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();

@@ -1,8 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import LoadingSpinner from './LoadingSpinner'
-import '../styles/LoadingSpinner.css'
-import { Loader2 } from '@mantine/core'
+import { Loader2 } from 'lucide-react'
 
 interface ProtectedRouteProps {
   children: React.ReactNode

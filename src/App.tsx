@@ -1,22 +1,12 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from './contexts/AuthContext'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'sonner'
+import { useAuth, AuthProvider } from './contexts/AuthContext'
+import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import OfferForm from './pages/offers/OfferForm'
 import OffersList from './pages/offers/OffersList'
 import Profile from './pages/Profile'
 import './App.css'
-import { AuthProvider } from './contexts/AuthContext'
-
-// Protected Route component
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth()
-  
-  if (!user) {
-    return <Navigate to="/login" />
-  }
-  
-  return <>{children}</>
-}
 
 // Public Route component
 function PublicRoute({ children }: { children: React.ReactNode }) {
@@ -32,60 +22,24 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <AuthProvider>
-      <Router>
+      <div className="app">
+        <Toaster position="top-right" richColors />
         <Routes>
-          {/* Redirect root to offers list */}
+          <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+          
+          {/* Protected routes */}
           <Route path="/" element={<Navigate to="/offers" replace />} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           
-          {/* Login route */}
-          <Route 
-            path="/login" 
-            element={
-              <PublicRoute>
-                <Login />
-              </PublicRoute>
-            } 
-          />
+          {/* Offer routes */}
+          <Route path="/offers" element={<ProtectedRoute><OffersList /></ProtectedRoute>} />
+          <Route path="/offers/new" element={<ProtectedRoute><OfferForm /></ProtectedRoute>} />
+          <Route path="/offers/:id" element={<ProtectedRoute><OfferForm /></ProtectedRoute>} />
           
-          {/* Offers routes */}
-          <Route
-            path="/offers"
-            element={
-              <ProtectedRoute>
-                <OffersList />
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/offers/new"
-            element={
-              <ProtectedRoute>
-                <OfferForm />
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/offers/:id"
-            element={
-              <ProtectedRoute>
-                <OfferForm />
-              </ProtectedRoute>
-            }
-          />
-          
-          {/* Profile route */}
-          <Route
-            path="/profile"
-            element={
-              <ProtectedRoute>
-                <Profile />
-              </ProtectedRoute>
-            }
-          />
+          {/* Fallback route */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </Router>
+      </div>
     </AuthProvider>
   )
 }

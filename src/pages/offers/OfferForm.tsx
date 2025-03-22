@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ChangeEvent, type FormEvent, type ReactElement } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -10,58 +10,24 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Switch } from '../../components/ui/switch';
 import { toast } from 'sonner';
-import { Loader2, Plus, Trash2, Save, ArrowLeft } from 'lucide-react';
-import { cn } from '../../lib/utils';
-import { Offer, License, Product, ProjectType } from '../../types/offer';
-import { formatCurrency } from '../../lib/utils';
+import { Loader2, Plus, Trash2, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
+import { cn, formatCurrency } from '../../lib/utils';
+import { Offer, License, Product, ProjectType, LicenseType, OfferStatus } from '../../types/offer';
 import Layout from '../../components/Layout';
-import { Plus as LucidePlus, ChevronDown, ChevronUp, Calendar, FileText } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 
-// Form state interface matching database schema
-interface FormState extends Omit<Offer, 'id' | 'created_by' | 'created_at' | 'updated_at'> {
-  customer_name: string;
-  cui: string;
-  order_date: string | null;
-  sales_person: string;
-  contract_type: ContractType;
-  project_description: string;
-  go_live_date: string | null;
-  approver: string;
-  approval_date: string | null;
-  status: OfferStatus;
-  value: number | null;
-  product_id: string | null;
-  license_type_id: string | null;
-  number_of_users: number | null;
-  duration_months: number | null;
-  project_type_id: string | null;
-  annual_commitment: boolean;
-  margin_pct: number;
-  discount_pct: number;
-  product_category: string | null;
-  project_type: string | null;
-}
-
-interface License {
-  id: number;
-  type: string;
-  quantity: number;
-  price: string;
-  annualCommitment: boolean;
-  monthlyPayment: boolean;
-  discount: number;
-  totalValue: string;
-  marginValue: string;
-}
-
-// Add product category type
+// Add ProductCategory interface
 interface ProductCategory {
   id: string;
   name: string;
   code: string;
   description: string;
+}
+
+// Form state interface matching database schema
+interface FormState extends Omit<Offer, 'id' | 'created_by' | 'created_at' | 'updated_at'> {
+  licenses: License[];
 }
 
 const initialFormData: FormState = {
@@ -72,7 +38,7 @@ const initialFormData: FormState = {
   contract_type: 'Implementation',
   project_description: '',
   go_live_date: null,
-  approver: '',
+  approver: null,
   approval_date: null,
   status: 'Draft',
   value: null,
@@ -85,29 +51,15 @@ const initialFormData: FormState = {
   margin_pct: 30,
   discount_pct: 0,
   product_category: null,
-  project_type: null
+  project_type: null,
+  licenses: []
 };
 
 export default function OfferForm(): ReactElement {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useAuth();
-  const [formData, setFormData] = useState<Offer>({
-    ...initialFormData,
-    contract_type: 'Implementation',
-    status: 'Draft',
-    value: null,
-    product_id: null,
-    license_type_id: null,
-    number_of_users: null,
-    duration_months: null,
-    project_type_id: null,
-    annual_commitment: false,
-    margin_pct: 30,
-    discount_pct: 0,
-    product_category: null,
-    project_type: null
-  });
+  const [formData, setFormData] = useState<FormState>(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -278,7 +230,7 @@ export default function OfferForm(): ReactElement {
               contract_type: 'Default', // Use a default value to avoid enum errors
               project_description: data.project_description || '',
               go_live_date: data.go_live_date || null,
-              approver: data.approver || '',
+              approver: data.approver || null,
               approval_date: data.approval_date || null,
               status: data.status,
               value: data.value || null,
@@ -291,7 +243,8 @@ export default function OfferForm(): ReactElement {
               margin_pct: data.margin_pct || 30,
               discount_pct: data.discount_pct || 0,
               product_category: productCategory,
-              project_type: projectType
+              project_type: projectType,
+              licenses: data.licenses || []
             });
 
             console.log('Form data set with project_type:', projectType, 'and project_type_id:', data.project_type_id);
@@ -719,57 +672,21 @@ export default function OfferForm(): ReactElement {
         : dbCode;
   };
 
-  const handleLicenseTypeChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    const licenseTypeId = e.target.value;
-    
-    // Update form data
-    setFormData(prev => ({ 
-      ...prev, 
-      license_type_id: licenseTypeId || null,
-      value: null
+  const handleLicenseTypeChange = (licenseTypeId: string) => {
+    const selectedType = licenseTypes.find(lt => lt.id === licenseTypeId);
+    setSelectedLicenseType(selectedType || null);
+    setFormData(prev => ({
+      ...prev,
+      license_type_id: licenseTypeId
     }));
-    
-    if (!licenseTypeId) {
-      setSelectedLicenseType(null);
-      return;
-    }
-    
-    // Get the selected license type
-    const licenseType = licenseTypes.find(lt => lt.id === licenseTypeId);
-    setSelectedLicenseType(licenseType || null);
-    
-    // Calculate price if license type and users are set
-    if (licenseType && formData.number_of_users) {
-      calculatePrice(
-        licenseType, 
-        formData.number_of_users, 
-        formData.annual_commitment,
-        formData.discount_pct,
-        formData.margin_pct
-      );
-    }
   };
 
-  const handleUsersChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const users = e.target.value === '' ? null : Number(e.target.value);
-    
-    setFormData(prev => ({ 
-      ...prev, 
-      number_of_users: users
+  const handleUsersChange = (value: string) => {
+    const numUsers = parseInt(value);
+    setFormData(prev => ({
+      ...prev,
+      number_of_users: isNaN(numUsers) ? null : numUsers
     }));
-    
-    // Calculate price if license type and users are set
-    if (selectedLicenseType && users) {
-      calculatePrice(
-        selectedLicenseType, 
-        users, 
-        formData.annual_commitment,
-        formData.discount_pct,
-        formData.margin_pct
-      );
-    } else {
-      setFormData(prev => ({ ...prev, value: null }));
-    }
   };
 
   const calculatePrice = (
@@ -1278,7 +1195,7 @@ export default function OfferForm(): ReactElement {
         <div className="space-y-1">
           <div className="text-gray-500 text-sm font-medium px-2 py-1">Offers</div>
           <div className="text-blue-600 bg-blue-50 rounded px-2 py-1 flex items-center space-x-2 text-sm font-medium">
-            <LucidePlus size={16} />
+            <Plus size={16} />
             <span>New Offer</span>
           </div>
         </div>
@@ -1472,7 +1389,7 @@ export default function OfferForm(): ReactElement {
                       onClick={addLicense}
                       className="inline-flex items-center justify-center px-3 py-1 bg-blue-50 text-blue-600 rounded text-sm font-medium"
                     >
-                      <LucidePlus size={14} className="mr-1" />
+                      <Plus size={14} className="mr-1" />
                       Add License
                     </button>
                   </div>
@@ -1831,7 +1748,7 @@ export default function OfferForm(): ReactElement {
                     <input 
                       type="text"
                       name="approver"
-                      value={formData.approver}
+                      value={formData.approver || ''}
                       onChange={handleChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Approver name"

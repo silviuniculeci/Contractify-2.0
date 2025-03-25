@@ -2,9 +2,14 @@ export interface Product {
   id: string;
   name: string;
   code: string;
-  description: string;
+  description: string | null;
+  category_id: string;
   created_at: string;
   updated_at: string;
+  product_categories?: {
+    id: string;
+    name: string;
+  };
 }
 
 export interface ProductFeature {

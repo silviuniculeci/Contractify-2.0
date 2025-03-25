@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../../components/ui/button';
@@ -7,9 +7,9 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
-import { Loader2, Plus, Search } from 'lucide-react';
+import { Loader2, Plus, Search, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { Offer } from '../../types/offer';
+import { Offer as BaseOffer } from '../../types/offer';
 import { formatCurrency } from '../../lib/utils';
 import Layout from '../../components/Layout';
 import type { ContractType } from '../../types/offer';
@@ -17,8 +17,47 @@ import type { Product, LicenseType, ProjectType } from '../../types/product';
 import { FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+// Add interface for project plan data
+interface ProjectPlan {
+  id: string;
+  status: string;
+  created_at: string | null;
+}
+
+// Extend the Offer type to include solution_id
+interface Offer extends BaseOffer {
+  solution_id?: string;
+  project_plan_requested?: boolean;
+  project_plan_submitted?: boolean;
+  project_plans?: ProjectPlan[];
+}
+
 export default function OffersList() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Check for URL parameters that indicate a project plan was just requested
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const requestedPlan = searchParams.get('planRequested');
+    const offerId = searchParams.get('offerId');
+    
+    if (requestedPlan === 'true' && offerId) {
+      toast.success('Project Plan requested successfully');
+      // Remove the parameters from the URL to prevent showing the toast on refresh
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location, navigate]);
+  
+  // Define initial categories
+  const initialCategories = [
+    { id: '1', name: 'Business Central', code: 'BC' },
+    { id: '2', name: 'Finance & Operations', code: 'FO' },
+    { id: '3', name: 'Timeqode', code: 'TQ' }
+  ];
+
+  // All state declarations
   const [offers, setOffers] = useState<Offer[]>([]);
   const [filteredOffers, setFilteredOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,16 +65,36 @@ export default function OffersList() {
   const [products, setProducts] = useState<Record<string, Product>>({});
   const [licenseTypes, setLicenseTypes] = useState<Record<string, LicenseType>>({});
   const [projectTypes, setProjectTypes] = useState<Record<string, ProjectType>>({});
-
-  // Filter states
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPackageType, setSelectedPackageType] = useState<ContractType | ''>('');
   const [selectedProductType, setSelectedProductType] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('');
   const [selectedProjectType, setSelectedProjectType] = useState<string>('');
-
-  const [productNames, setProductNames] = useState<Record<string, string>>({});
   const [projectTypeNames, setProjectTypeNames] = useState<Record<string, string>>({});
+  const [showPendingProjectPlans, setShowPendingProjectPlans] = useState<boolean>(false);
+  
+  // Initialize categories with initial data
+  const [productCategories, setProductCategories] = useState<Record<string, { id: string, name: string }>>(() => {
+    const categoriesMap: Record<string, { id: string, name: string }> = {};
+    initialCategories.forEach(category => {
+      categoriesMap[category.id] = {
+        id: category.id,
+        name: category.name
+      };
+    });
+    return categoriesMap;
+  });
+
+  // Initialize product names with initial data
+  const [productNames, setProductNames] = useState<Record<string, string>>(() => {
+    const namesMap: Record<string, string> = {};
+    initialCategories.forEach(category => {
+      namesMap[category.id] = category.name;
+    });
+    return namesMap;
+  });
+
+  // Add debugging flag
+  const isDebugMode = true;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -43,101 +102,126 @@ export default function OffersList() {
         setLoading(true);
         setError(null);
 
-        // Fetch offers
+        console.log('Starting to fetch offers...');
+
+        // First check if we can connect to Supabase
+        const { data: testConnection, error: connectionError } = await supabase
+          .from('offers')
+          .select('count')
+          .limit(1);
+
+        if (connectionError) {
+          console.error('Supabase connection error:', connectionError);
+          setError(`Database connection error: ${connectionError.message}`);
+          return;
+        }
+
+        console.log('Successfully connected to Supabase');
+
+        // Fetch offers with detailed error logging
         const { data: offersData, error: offersError } = await supabase
           .from('offers')
-          .select('*')
+          .select(`
+            *,
+            project_plans:project_requests(id, status, created_at)
+          `)
           .order('created_at', { ascending: false });
 
         if (offersError) {
           console.error('Error fetching offers:', offersError);
-          setError('Failed to load offers');
+          setError(`Failed to load offers: ${offersError.message}`);
           return;
         }
 
-        setOffers(offersData || []);
-        setFilteredOffers(offersData || []);
-
-        // Fetch products
-        const { data: productsData, error: productsError } = await supabase
-          .from('products')
-          .select('*');
-
-        if (productsError) {
-          console.error('Error fetching products:', productsError);
+        if (!offersData) {
+          console.warn('No offers data received');
+          setError('No offers data received from the server');
           return;
         }
 
-        const productsMap: Record<string, Product> = {};
-        productsData?.forEach(product => {
-          productsMap[product.id] = product;
-        });
-        setProducts(productsMap);
-
-        // Fetch license types
-        const { data: licenseTypesData, error: licenseTypesError } = await supabase
-          .from('license_types')
-          .select('*');
-
-        if (licenseTypesError) {
-          console.error('Error fetching license types:', licenseTypesError);
-          return;
-        }
-
-        const licenseTypesMap: Record<string, LicenseType> = {};
-        licenseTypesData?.forEach(licenseType => {
-          licenseTypesMap[licenseType.id] = licenseType;
-        });
-        setLicenseTypes(licenseTypesMap);
+        console.log('Successfully fetched offers:', offersData.length);
         
-        // Fetch project types
-        const { data: projectTypesData, error: projectTypesError } = await supabase
-          .from('project_types')
-          .select('*');
-
-        if (projectTypesError) {
-          console.error('Error fetching project types:', projectTypesError);
-          return;
+        // Add detailed debugging for the specific offer
+        const specificOffer = offersData.find(o => o.id === 'a900599f-a7b4-4681-abfb-210ed65487a2');
+        if (specificOffer) {
+          console.log('IMPORTANT: Found specific offer in raw data:', specificOffer.id);
+          console.log('IMPORTANT: Raw project_plans data:', JSON.stringify(specificOffer.project_plans, null, 2));
+          console.log('IMPORTANT: Raw offer status:', specificOffer.status);
+        } else {
+          console.log('IMPORTANT: Specific offer not found in data');
         }
-
-        const projectTypesMap: Record<string, ProjectType> = {};
-        projectTypesData?.forEach(projectType => {
-          projectTypesMap[projectType.id] = projectType;
+        
+        // Process offers to include project plan information
+        const processedOffers = offersData.map(offer => {
+          // If this is the specific offer we're interested in, log detailed debug info
+          if (offer.id === 'a900599f-a7b4-4681-abfb-210ed65487a2') {
+            console.log('DEBUG: Processing specific offer:', offer.id);
+            console.log('DEBUG: project_plans:', JSON.stringify(offer.project_plans, null, 2));
+          }
+          
+          // Check if this offer has requested a project plan
+          const hasProjectPlanRequest = Array.isArray(offer.project_plans) && offer.project_plans.length > 0;
+          
+          // Check if the project plan has been submitted - using case-insensitive comparison
+          const projectPlanSubmitted = hasProjectPlanRequest && 
+            offer.project_plans.some((plan: ProjectPlan) => 
+              plan.status.toUpperCase() === 'SUBMITTED'
+            );
+          
+          // Add more detailed logging for the specific offer
+          if (offer.id === 'a900599f-a7b4-4681-abfb-210ed65487a2') {
+            console.log('DEBUG: hasProjectPlanRequest:', hasProjectPlanRequest);
+            console.log('DEBUG: projectPlanSubmitted:', projectPlanSubmitted);
+            console.log('DEBUG: Combined status will be:', hasProjectPlanRequest && !projectPlanSubmitted ? 'Awaiting Project Plan' : 
+                                               (hasProjectPlanRequest && projectPlanSubmitted ? 'Project Plan Submitted' : offer.status));
+          }
+          
+          return {
+            ...offer,
+            project_plan_requested: hasProjectPlanRequest,
+            project_plan_submitted: projectPlanSubmitted
+          };
         });
-        setProjectTypes(projectTypesMap);
+        
+        console.log('Processed offers:', processedOffers.length);
+        setOffers(processedOffers);
+        setFilteredOffers(processedOffers);
 
-        // Fetch product categories for name mapping
-        const { data: productCategories, error: productError } = await supabase
-          .from('product_categories')
-          .select('id, name');
+        // Fetch solutions with error handling
+        const { data: solutionsData, error: solutionsError } = await supabase
+          .from('solutions')
+          .select('*')
+          .order('name');
 
-        if (productError) {
-          console.error('Error fetching product categories:', productError);
-        } else {
-          const productMap: Record<string, string> = {};
-          productCategories?.forEach(product => {
-            productMap[product.id] = product.name;
-          });
-          setProductNames(productMap);
+        if (solutionsError) {
+          console.error('Error fetching solutions:', solutionsError);
+          // Don't return here, continue with default values
         }
 
-        // Fetch project types for name mapping
-        const { data: projectTypesNames, error: projectTypeError } = await supabase
-          .from('project_types')
-          .select('id, name');
-
-        if (projectTypeError) {
-          console.error('Error fetching project types:', projectTypeError);
-        } else {
-          const projectTypeMap: Record<string, string> = {};
-          projectTypesNames?.forEach(type => {
-            projectTypeMap[type.id] = type.name;
+        if (solutionsData && solutionsData.length > 0) {
+          console.log('Successfully fetched solutions:', solutionsData.length);
+          
+          const solutionsMap: Record<string, { id: string, name: string }> = {};
+          const namesMap: Record<string, string> = {};
+          
+          solutionsData.forEach(solution => {
+            solutionsMap[solution.id] = { 
+              id: solution.id, 
+              name: solution.name 
+            };
+            namesMap[solution.id] = solution.name;
           });
-          setProjectTypeNames(projectTypeMap);
+          
+          setProductCategories(solutionsMap);
+          setProductNames(namesMap);
+        } else {
+          console.log('No solutions found, using default values');
         }
-      } catch (err) {
-        console.error('Error in fetchData:', err);
-        setError('An unexpected error occurred');
+
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+        console.error('Error in fetchData:', error);
+        setError(`Failed to load data: ${errorMessage}`);
       } finally {
         setLoading(false);
       }
@@ -146,7 +230,49 @@ export default function OffersList() {
     fetchData();
   }, []);
 
-  // Apply filters whenever filter states change
+  // Get combined status that includes project plan information
+  const getCombinedStatus = (offer: Offer): string => {
+    // Add debug logging for our specific offer
+    if (offer.id === 'a900599f-a7b4-4681-abfb-210ed65487a2') {
+      console.log('DEBUG: getCombinedStatus for specific offer:', offer.id);
+      console.log('DEBUG: offer.status:', offer.status);
+      console.log('DEBUG: offer.project_plan_requested:', offer.project_plan_requested);
+      console.log('DEBUG: offer.project_plan_submitted:', offer.project_plan_submitted);
+    }
+
+    // Always prioritize project plan status conditions
+    if (offer.project_plan_requested === true) {
+      if (!offer.project_plan_submitted) {
+        return "Awaiting Project Plan";
+      } else {
+        return "Project Plan Submitted";
+      }
+    }
+    return offer.status;
+  };
+
+  // Update the getStatusColor function to include project plan statuses
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Draft':
+        return 'bg-gray-100 text-gray-800';
+      case 'Pending Approval':
+      case 'Pending':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'Approved':
+        return 'bg-green-100 text-green-800';
+      case 'Rejected':
+        return 'bg-red-100 text-red-800';
+      case 'Awaiting Project Plan':
+        return 'bg-orange-100 text-orange-800';
+      case 'Project Plan Submitted':
+        return 'bg-blue-100 text-blue-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  // Apply status filter
   useEffect(() => {
     let result = [...offers];
 
@@ -157,18 +283,25 @@ export default function OffersList() {
         offer =>
           offer.customer_name.toLowerCase().includes(query) ||
           offer.cui.toLowerCase().includes(query) ||
-          (products[offer.product_id || '']?.name.toLowerCase().includes(query))
+          (productNames[offer.solution_id || '']?.toLowerCase?.() || '').includes(query)
       );
     }
 
-    // Apply package type filter
-    if (selectedPackageType) {
-      result = result.filter(offer => offer.contract_type === selectedPackageType);
-    }
-
-    // Apply product type filter
+    // Apply solution filter
     if (selectedProductType) {
-      result = result.filter(offer => offer.product_id === selectedProductType);
+      console.log('Filtering offers by solution ID:', selectedProductType);
+      result = result.filter(offer => {
+        // Try all possible field names that might contain the solution ID
+        const offerSolutionId = offer.solution_id || offer.product_id;
+        
+        // Add more detailed logging to help debug the issue
+        if (offer.id) {
+          console.log(`Checking offer ${offer.id}: solution_id=${offer.solution_id}, product_id=${offer.product_id}, selected=${selectedProductType}`);
+        }
+        
+        // Check if any of them match the selected solution
+        return offerSolutionId === selectedProductType;
+      });
     }
 
     // Apply project type filter
@@ -176,13 +309,25 @@ export default function OffersList() {
       result = result.filter(offer => offer.project_type_id === selectedProjectType);
     }
 
-    // Apply status filter
+    // Apply status filter - updated to check combined status
     if (selectedStatus) {
-      result = result.filter(offer => offer.status === selectedStatus);
+      result = result.filter(offer => {
+        const combinedStatus = getCombinedStatus(offer);
+        return combinedStatus === selectedStatus;
+      });
     }
 
+    // Apply pending project plans filter
+    if (showPendingProjectPlans) {
+      result = result.filter(offer => 
+        offer.project_plan_requested === true && 
+        (offer.project_plan_submitted === false || offer.project_plan_submitted === undefined)
+      );
+    }
+
+    console.log('Filtered offers:', result.length);
     setFilteredOffers(result);
-  }, [searchQuery, selectedPackageType, selectedProductType, selectedProjectType, selectedStatus, offers, products]);
+  }, [searchQuery, selectedProductType, selectedProjectType, selectedStatus, showPendingProjectPlans, offers, productNames]);
 
   // Calculate statistics based on filtered offers
   const totalOffers = filteredOffers.length;
@@ -195,21 +340,6 @@ export default function OffersList() {
     .filter(offer => offer.status === 'Approved')
     .reduce((sum, offer) => sum + (offer.value || 0), 0);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Draft':
-        return 'bg-gray-100 text-gray-800';
-      case 'Pending Approval':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'Approved':
-        return 'bg-green-100 text-green-800';
-      case 'Rejected':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
   // Get unique products for the filter dropdown
   const uniqueProducts = Object.values(products).filter(product => 
     offers.some(offer => offer.product_id === product.id)
@@ -219,6 +349,137 @@ export default function OffersList() {
   const uniqueProjectTypes = Object.values(projectTypes).filter(projectType => 
     offers.some(offer => offer.project_type_id === projectType.id)
   );
+
+  const handleDeleteOffer = async (offerId: string) => {
+    try {
+      // Delete the offer
+      const { error: offerError } = await supabase
+        .from('offers')
+        .delete()
+        .eq('id', offerId);
+
+      if (offerError) {
+        console.error('Error deleting offer:', offerError);
+        toast.error(`Failed to delete offer: ${offerError.message}`);
+        return;
+      }
+
+      // Update local state
+      setOffers(offers.filter(offer => offer.id !== offerId));
+      setFilteredOffers(filteredOffers.filter(offer => offer.id !== offerId));
+      toast.success('Offer deleted successfully');
+    } catch (error) {
+      console.error('Error in handleDeleteOffer:', error);
+      toast.error('An unexpected error occurred');
+    }
+  };
+
+  // Add a useEffect hook specifically for debugging solutions
+  useEffect(() => {
+    const checkSolutions = async () => {
+      try {
+        console.log('DEBUG: Directly querying solutions table...');
+        const { data, error } = await supabase
+          .from('solutions')
+          .select('*');
+        
+        if (error) {
+          console.error('DEBUG: Error fetching solutions:', error);
+        } else {
+          console.log('DEBUG: Raw solutions data:', JSON.stringify(data, null, 2));
+          console.log('DEBUG: Number of solutions:', data?.length || 0);
+        }
+      } catch (err) {
+        console.error('DEBUG: Exception in checkSolutions:', err);
+      }
+    };
+    
+    checkSolutions();
+  }, []);
+
+  // Add a useEffect to log offer ID fields after data is loaded
+  useEffect(() => {
+    if (offers.length > 0) {
+      console.log('OFFER FIELD DEBUG:');
+      console.log('First offer keys:', Object.keys(offers[0]));
+      const firstOffer = offers[0];
+      console.log('solution_id:', firstOffer.solution_id);
+      console.log('product_id:', firstOffer.product_id);
+      console.log('All solution IDs:', offers.map(o => o.solution_id || o.product_id));
+      
+      console.log('SOLUTION DEBUG:');
+      console.log('All solution names:', productNames);
+    }
+  }, [offers, productNames]);
+
+  // Add a new function to check the offers table schema
+  const checkOffersSchema = async () => {
+    try {
+      console.log('Checking offers table schema...');
+      
+      // Try to get the column names directly
+      const { data: columns, error: columnsError } = await supabase.rpc(
+        'get_columns_for_table',
+        { table_name: 'offers' }
+      );
+      
+      if (columnsError) {
+        console.error('Error fetching columns:', columnsError);
+      } else {
+        console.log('Offers table columns:', columns);
+      }
+      
+      // Try a direct query to check a single offer
+      if (offers.length > 0) {
+        const firstOfferId = offers[0].id;
+        
+        if (firstOfferId) {
+          const { data: offerData, error: offerError } = await supabase
+            .from('offers')
+            .select('*')
+            .eq('id', firstOfferId)
+            .single();
+            
+          if (offerError) {
+            console.error('Error fetching sample offer:', offerError);
+          } else {
+            console.log('Sample offer from direct query:', offerData);
+            console.log('Sample offer fields:', Object.keys(offerData));
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error checking offers schema:', err);
+    }
+  };
+
+  // Call this function after offers are loaded
+  useEffect(() => {
+    if (offers.length > 0) {
+      checkOffersSchema();
+    }
+  }, [offers]);
+
+  // Add function to render project plan status badge
+  const renderProjectPlanStatus = (offer: Offer) => {
+    if (!offer.project_plan_requested) {
+      return null;
+    }
+    
+    if (offer.project_plan_submitted) {
+      return (
+        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+          Project Plan Submitted
+        </span>
+      );
+    } else {
+      return (
+        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+          Project Plan Pending
+        </span>
+      );
+    }
+  };
 
   return (
     <Layout>
@@ -357,7 +618,7 @@ export default function OffersList() {
               <h2 className="text-base font-medium text-gray-700">Filter Offers</h2>
             </div>
             <div className="p-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {/* Search Input */}
                 <div>
                   <label htmlFor="search" className="block text-sm font-medium text-gray-700">
@@ -379,43 +640,42 @@ export default function OffersList() {
                   </div>
                 </div>
 
-                {/* Product Type Filter */}
+                {/* Product Category Filter */}
                 <div>
-                  <label htmlFor="productType" className="block text-sm font-medium text-gray-700">
-                    Product
+                  <label htmlFor="productCategory" className="block text-sm font-medium text-gray-700">
+                    Solution
                   </label>
                   <select
-                    id="productType"
-                    name="productType"
+                    id="productCategory"
+                    name="productCategory"
                     value={selectedProductType}
-                    onChange={(e) => setSelectedProductType(e.target.value)}
+                    onChange={(e) => {
+                      console.log('Selected solution ID:', e.target.value);
+                      setSelectedProductType(e.target.value);
+                    }}
                     className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
                   >
-                    <option value="">All Products</option>
-                    {uniqueProducts.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Package Type Filter */}
-                <div>
-                  <label htmlFor="packageType" className="block text-sm font-medium text-gray-700">
-                    Contract Type
-                  </label>
-                  <select
-                    id="packageType"
-                    name="packageType"
-                    value={selectedPackageType}
-                    onChange={(e) => setSelectedPackageType(e.target.value as ContractType | '')}
-                    className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-                  >
-                    <option value="">All Contract Types</option>
-                    <option value="Implementation">Implementation</option>
-                    <option value="Support">Support</option>
-                    <option value="License">License</option>
+                    <option value="">All Solutions</option>
+                    {Object.keys(productCategories).length > 0 ? (
+                      Object.entries(productCategories)
+                        .sort(([, a], [, b]) => a.name.localeCompare(b.name))
+                        .map(([id, category]) => (
+                          <option key={id} value={id}>
+                            {category.name}
+                          </option>
+                        ))
+                    ) : (
+                      // Fallback options if productCategories is empty
+                      [
+                        { id: '1', name: 'Business Central' },
+                        { id: '2', name: 'Finance & Operations' },
+                        { id: '3', name: 'Timeqode' }
+                      ].map(category => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
 
@@ -457,12 +717,31 @@ export default function OffersList() {
                     <option value="Pending">Pending</option>
                     <option value="Approved">Approved</option>
                     <option value="Rejected">Rejected</option>
+                    <option value="Awaiting Project Plan">Awaiting Project Plan</option>
+                    <option value="Project Plan Submitted">Project Plan Submitted</option>
                   </select>
+                </div>
+
+                {/* Project Plan Filter */}
+                <div className="col-span-1 lg:col-span-4 mt-2">
+                  <div className="flex items-center">
+                    <input
+                      id="filter-pending-project-plans"
+                      name="filter-pending-project-plans"
+                      type="checkbox"
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      checked={showPendingProjectPlans}
+                      onChange={(e) => setShowPendingProjectPlans(e.target.checked)}
+                    />
+                    <label htmlFor="filter-pending-project-plans" className="ml-2 block text-sm text-gray-700">
+                      Show only offers awaiting project plans from operations
+                    </label>
+                  </div>
                 </div>
               </div>
 
               {/* Active Filters */}
-              {(searchQuery || selectedPackageType || selectedProductType || selectedProjectType || selectedStatus) && (
+              {(searchQuery || selectedProductType || selectedProjectType || selectedStatus || showPendingProjectPlans) && (
                 <div className="mt-4 flex flex-wrap gap-2">
                   {searchQuery && (
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
@@ -478,22 +757,10 @@ export default function OffersList() {
                   )}
                   {selectedProductType && (
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
-                      Product: {products[selectedProductType]?.name}
+                      Solution: {productCategories[selectedProductType]?.name || 'Unknown'}
                       <button
                         onClick={() => setSelectedProductType('')}
                         className="ml-2 inline-flex text-purple-400 hover:text-purple-600"
-                      >
-                        <span className="sr-only">Remove</span>
-                        ×
-                      </button>
-                    </span>
-                  )}
-                  {selectedPackageType && (
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-                      Contract: {selectedPackageType}
-                      <button
-                        onClick={() => setSelectedPackageType('')}
-                        className="ml-2 inline-flex text-blue-400 hover:text-blue-600"
                       >
                         <span className="sr-only">Remove</span>
                         ×
@@ -518,6 +785,18 @@ export default function OffersList() {
                       <button
                         onClick={() => setSelectedStatus('')}
                         className="ml-2 inline-flex text-blue-400 hover:text-blue-600"
+                      >
+                        <span className="sr-only">Remove</span>
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  {showPendingProjectPlans && (
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+                      Awaiting Project Plans
+                      <button
+                        onClick={() => setShowPendingProjectPlans(false)}
+                        className="ml-2 inline-flex text-yellow-400 hover:text-yellow-600"
                       >
                         <span className="sr-only">Remove</span>
                         ×
@@ -561,65 +840,79 @@ export default function OffersList() {
             </div>
           </div>
         ) : (
-          <div className="bg-white shadow overflow-hidden sm:rounded-md">
-            <ul className="divide-y divide-gray-200">
-              {filteredOffers.map((offer) => (
-                <li key={offer.id}>
-                  <Link 
-                    to={`/offers/${offer.id}`}
-                    className="block hover:bg-gray-50"
-                  >
-                    <div className="px-4 py-4 sm:px-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <FileText className="h-5 w-5 text-gray-400 mr-3" />
-                          <div>
-                            <p className="text-sm font-medium text-blue-600 truncate hover:text-blue-800">
-                              {offer.customer_name}
-                            </p>
-                            {offer.product_id && (
-                              <p className="text-xs text-gray-500 mt-1 flex items-center">
-                                <FileText className="h-3 w-3 mr-1" />
-                                {products[offer.product_id]?.name} 
-                                {offer.license_type_id && licenseTypes[offer.license_type_id] && 
-                                  ` - ${licenseTypes[offer.license_type_id].name}`
-                                }
-                              </p>
-                            )}
-                          </div>
+          <div className="mt-8">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CUI</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Solution</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project Type</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredOffers.map((offer) => (
+                    <tr key={offer.id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Link
+                          to={`/offers/${offer.id}`}
+                          className="text-sm font-medium text-gray-900 hover:text-blue-600"
+                        >
+                          {offer.customer_name}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{offer.cui}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {(() => {
+                            const solutionId = offer.solution_id || offer.product_id;
+                            if (solutionId && productNames[solutionId]) {
+                              return productNames[solutionId];
+                            }
+                            return 'N/A';
+                          })()}
                         </div>
-                        <div className="ml-2 flex flex-col items-end">
-                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(offer.status)}`}>
-                            {offer.status}
-                          </span>
-                          {offer.value && (
-                            <span className="mt-1 text-sm font-medium text-gray-900">
-                              €{offer.value.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="mt-2 sm:flex sm:justify-between">
-                        <div className="sm:flex">
-                          <p className="flex items-center text-sm text-gray-500">
-                            CUI: {offer.cui}
-                          </p>
-                          <p className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0 sm:ml-6">
-                            {offer.contract_type}
-                          </p>
-                        </div>
-                        <div className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                          <p>
-                            Created at:{' '}
-                            {new Date(offer.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{projectTypeNames[offer.project_type_id || ''] || 'N/A'}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{formatCurrency(offer.value)}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={cn(
+                          "px-2 inline-flex text-xs leading-5 font-semibold rounded-full",
+                          getStatusColor(getCombinedStatus(offer))
+                        )}>
+                          {getCombinedStatus(offer)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {offer.created_at ? new Date(offer.created_at).toLocaleDateString() : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        {offer.status === 'Draft' && (
+                          <button
+                            onClick={() => handleDeleteOffer(offer.id || '')}
+                            className="text-red-600 hover:text-red-900"
+                            title="Delete offer"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

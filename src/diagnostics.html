@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagnostic Page</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .card {
+      background-color: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    .diagnostic-info {
+      font-family: monospace;
+      background-color: #f0f0f0;
+      border: 1px solid #ccc;
+      padding: 15px;
+      border-radius: 4px;
+      white-space: pre-wrap;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+  </style>
+</head>
+<body>
+  <h1>Diagnostic Page</h1>
+  
+  <div class="card">
+    <h2>Browser Information</h2>
+    <div class="diagnostic-info" id="browser-info"></div>
+  </div>
+  
+  <div class="card">
+    <h2>Router Test Links</h2>
+    <p>Click these links to test if routing is working:</p>
+    <div>
+      <a href="/" target="_blank">Home</a> | 
+      <a href="/test" target="_blank">Test Page</a> | 
+      <a href="/projects" target="_blank">Projects</a> | 
+      <a href="/offers" target="_blank">Offers</a>
+    </div>
+  </div>
+  
+  <div class="card">
+    <h2>DOM Structure</h2>
+    <button onclick="analyzeDom()">Analyze DOM</button>
+    <div class="diagnostic-info" id="dom-info"></div>
+  </div>
+
+  <div class="card">
+    <h2>Console Logs</h2>
+    <button onclick="checkConsole()">Check Console Messages</button>
+    <div class="diagnostic-info" id="console-info">Open browser console to see log messages</div>
+  </div>
+
+  <script>
+    // Display browser information
+    function displayBrowserInfo() {
+      const info = document.getElementById('browser-info');
+      info.textContent = `User Agent: ${navigator.userAgent}
+Screen Size: ${window.screen.width}x${window.screen.height}
+Window Size: ${window.innerWidth}x${window.innerHeight}
+Device Pixel Ratio: ${window.devicePixelRatio}
+Language: ${navigator.language}
+Platform: ${navigator.platform}`;
+    }
+    
+    // Analyze DOM structure
+    function analyzeDom() {
+      const info = document.getElementById('dom-info');
+      const rootElement = document.getElementById('root');
+      
+      if (rootElement) {
+        info.textContent = `Root element exists.\nChildren: ${rootElement.childNodes.length}\nHTML: ${rootElement.innerHTML.substring(0, 500)}...`;
+      } else {
+        info.textContent = 'Root element (#root) not found in the DOM.';
+      }
+    }
+    
+    // Check console logs
+    function checkConsole() {
+      console.log('Diagnostic check initiated');
+      console.log('Window object:', window);
+      console.log('Document object:', document);
+      console.log('Location:', window.location);
+      console.log('History API available:', !!window.history);
+      
+      // Test console error
+      try {
+        throw new Error('Test error for diagnostic purposes');
+      } catch (e) {
+        console.error('Test error caught:', e);
+      }
+    }
+    
+    // Run when page loads
+    window.onload = function() {
+      displayBrowserInfo();
+      console.log('Diagnostic page loaded successfully');
+    };
+  </script>
+</body>
+</html> 

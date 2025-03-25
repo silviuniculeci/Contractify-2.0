@@ -7,8 +7,7 @@ export interface Offer {
   cui: string;
   order_date: string | null;
   sales_person: string;
-  contract_type: ContractType;
-  project_description: string;
+  project_description: string | null;
   go_live_date: string | null;
   approver: string | null;
   approval_date: string | null;

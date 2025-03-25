@@ -30,8 +30,8 @@ export default function Login() {
       }
       
       if (user) {
-        // Redirect to the new offer form after successful login
-        navigate('/offers/new')
+        // Redirect to the dashboard which will handle role-based redirection
+        navigate('/dashboard')
       }
     } catch (err) {
       console.error('Error signing in:', err)

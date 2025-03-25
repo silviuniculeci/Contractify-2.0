@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import ProjectList from './pages/projects/ProjectList'
 import TestPage from './pages/TestPage'
 import ProjectForm from './pages/projects/ProjectForm'
+import OfferForm from './pages/offers/OfferForm'
 import './App.css'
 import RoleBasedRoute from './components/RoleBasedRoute'
 
@@ -31,6 +32,7 @@ function App() {
               <ProjectForm />
             </RoleBasedRoute>
           } />
+          <Route path="/offers/new" element={<OfferForm />} />
           <Route path="/projects/:projectId/edit" element={
             <RoleBasedRoute allowedRoles={['ADMIN', 'MANAGER', 'OPERATIONS']}>
               <ProjectForm />

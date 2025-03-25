@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import Sidebar from './components/Sidebar'
 import { Toaster } from 'sonner'
 import Login from './pages/Login'
 import ProjectList from './pages/projects/ProjectList'
@@ -10,32 +11,17 @@ import RoleBasedRoute from './components/RoleBasedRoute'
 // Simplified App component with minimal routes
 function App() {
   console.log('App component rendering');
-  
+  const location = useLocation();
+  const isLoginPage = location.pathname === '/login';
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="bg-gray-50 h-screen flex">
       <Toaster position="top-right" richColors />
       
-      {/* Navigation Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex">
-              <div className="flex-shrink-0 flex items-center">
-                <span className="text-xl font-bold text-blue-600">Contractify</span>
-              </div>
-              <nav className="ml-8 flex items-center space-x-4">
-                <a href="/" className="px-3 py-2 text-gray-700 hover:text-blue-600">Home</a>
-                <a href="/test" className="px-3 py-2 text-gray-700 hover:text-blue-600">Test</a>
-                <a href="/projects" className="px-3 py-2 text-gray-700 hover:text-blue-600">Projects</a>
-                <a href="/login" className="px-3 py-2 text-gray-700 hover:text-blue-600">Login</a>
-              </nav>
-            </div>
-          </div>
-        </div>
-      </header>
-      
+      {/* Navigation Sidebar */}
+      {!isLoginPage && <Sidebar />}
       {/* Main Content */}
-      <main>
+      <main className="flex-1 overflow-y-auto">
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/test" element={<TestPage />} />

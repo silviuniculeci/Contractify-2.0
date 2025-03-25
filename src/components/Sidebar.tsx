@@ -105,8 +105,8 @@ export default function Sidebar() {
   const visibleItems = navigationItems.filter(item => item.visible);
 
   return (
-    <div 
-      className={`bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ${
+    <div
+      className={`bg-white border-r border-gray-200 flex flex-col h-full transition-all duration-300 ${
         isCollapsed ? 'w-16' : 'w-64'
       }`}
     >

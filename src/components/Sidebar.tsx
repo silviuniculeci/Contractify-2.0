@@ -92,7 +92,7 @@ export default function Sidebar() {
       href: '/projects',
       icon: Clipboard,
       current: location.pathname.startsWith('/projects'),
-      visible: userRole === 'OPERATIONAL_MANAGER'
+      visible: true
     },
     {
       name: 'Profile',
@@ -161,22 +161,18 @@ export default function Sidebar() {
             </>
           )}
 
-          {/* Projects section for operational managers */}
-          {userRole === 'OPERATIONAL_MANAGER' && (
-            <>
-              <Link
-                to="/projects"
-                className={`flex items-center px-3 py-2 mx-2 text-sm font-medium rounded-md ${
-                  location.pathname === '/projects' || location.pathname === '/'
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Briefcase className="h-5 w-5 flex-shrink-0" />
-                {!isCollapsed && <span className="ml-3">Project Requests</span>}
-              </Link>
-            </>
-          )}
+          {/* Projects section for all users */}
+          <Link
+            to="/projects"
+            className={`flex items-center px-3 py-2 mx-2 text-sm font-medium rounded-md ${
+              location.pathname === '/projects' || location.pathname === '/'
+                ? 'bg-blue-50 text-blue-700'
+                : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Briefcase className="h-5 w-5 flex-shrink-0" />
+            {!isCollapsed && <span className="ml-3">Projects</span>}
+          </Link>
         </div>
       </nav>
 

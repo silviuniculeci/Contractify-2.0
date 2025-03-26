@@ -24,7 +24,7 @@ function App() {
       <Toaster position="top-right" richColors />
 
       {/* Navigation Sidebar */}
-      {!isLoginPage && location.pathname !== '/offers' && <Sidebar />}
+      {!isLoginPage && <Sidebar />}
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
         <Routes>

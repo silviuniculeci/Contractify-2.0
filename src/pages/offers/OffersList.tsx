@@ -1,921 +1,548 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
-import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Label } from '../../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { toast } from 'sonner';
-import { Loader2, Plus, Search, Trash2 } from 'lucide-react';
-import { cn } from '../../lib/utils';
-import { Offer as BaseOffer } from '../../types/offer';
-import { formatCurrency } from '../../lib/utils';
+import React, { useState, useEffect } from 'react';
+import { FileText, Search, Download, Plus, Filter } from 'lucide-react';
 import Layout from '../../components/Layout';
-import type { ContractType } from '../../types/offer';
-import type { Product, LicenseType, ProjectType } from '../../types/product';
-import { FileText } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { supabase } from '../../supabaseClient';
 
-// Add interface for project plan data
-interface ProjectPlan {
+interface Offer {
   id: string;
+  customer_name: string;
+  solution_id: string;
+  project_type_id: string;
+  order_date: string;
+  value: number;
   status: string;
-  created_at: string | null;
 }
 
-// Extend the Offer type to include solution_id
-interface Offer extends BaseOffer {
-  solution_id?: string;
-  project_plan_requested?: boolean;
-  project_plan_submitted?: boolean;
-  project_plans?: ProjectPlan[];
-}
+const getSolutionName = async (solution_id: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('solutions')
+      .select('name')
+      .eq('id', solution_id)
+      .single();
 
-export default function OffersList() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-  
-  // Check for URL parameters that indicate a project plan was just requested
-  useEffect(() => {
-    const searchParams = new URLSearchParams(location.search);
-    const requestedPlan = searchParams.get('planRequested');
-    const offerId = searchParams.get('offerId');
-    
-    if (requestedPlan === 'true' && offerId) {
-      toast.success('Project Plan requested successfully');
-      // Remove the parameters from the URL to prevent showing the toast on refresh
-      navigate(location.pathname, { replace: true });
+    if (error) {
+      console.error('Error fetching solution name:', error);
+      return '';
     }
-  }, [location, navigate]);
-  
-  // Define initial categories
-  const initialCategories = [
-    { id: '1', name: 'Business Central', code: 'BC' },
-    { id: '2', name: 'Finance & Operations', code: 'FO' },
-    { id: '3', name: 'Timeqode', code: 'TQ' }
-  ];
 
-  // All state declarations
+    return data.name || '';
+  } catch (error) {
+    console.error('Error fetching solution name:', error);
+    return '';
+  }
+};
+
+const getProjectTypeName = async (project_type_id: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('project_types')
+      .select('name')
+      .eq('id', project_type_id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching project type name:', error);
+      return '';
+    }
+
+    return data.name || '';
+  } catch (error) {
+    console.error('Error fetching project type name:', error);
+    return '';
+  }
+};
+
+const SavedOffersView = () => {
+  // State for filters
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [solutionFilter, setSolutionFilter] = useState('all');
+  const [projectTypeFilter, setProjectTypeFilter] = useState('all');
   const [offers, setOffers] = useState<Offer[]>([]);
-  const [filteredOffers, setFilteredOffers] = useState<Offer[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [products, setProducts] = useState<Record<string, Product>>({});
-  const [licenseTypes, setLicenseTypes] = useState<Record<string, LicenseType>>({});
-  const [projectTypes, setProjectTypes] = useState<Record<string, ProjectType>>({});
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedProductType, setSelectedProductType] = useState<string>('');
-  const [selectedStatus, setSelectedStatus] = useState<string>('');
-  const [selectedProjectType, setSelectedProjectType] = useState<string>('');
-  const [projectTypeNames, setProjectTypeNames] = useState<Record<string, string>>({});
-  const [showPendingProjectPlans, setShowPendingProjectPlans] = useState<boolean>(false);
+  const [solutionNames, setSolutionNames] = useState<{ [key: string]: string }>({});
+  const [projectTypeNames, setProjectTypeNames] = useState<{ [key: string]: string }>({});
   
-  // Initialize categories with initial data
-  const [productCategories, setProductCategories] = useState<Record<string, { id: string, name: string }>>(() => {
-    const categoriesMap: Record<string, { id: string, name: string }> = {};
-    initialCategories.forEach(category => {
-      categoriesMap[category.id] = {
-        id: category.id,
-        name: category.name
-      };
-    });
-    return categoriesMap;
+  // State for chart data
+  const [statusCounts, setStatusCounts] = useState({
+    approved: 0,
+    pending: 0,
+    draft: 0,
+    rejected: 0,
   });
 
-  // Initialize product names with initial data
-  const [productNames, setProductNames] = useState<Record<string, string>>(() => {
-    const namesMap: Record<string, string> = {};
-    initialCategories.forEach(category => {
-      namesMap[category.id] = category.name;
-    });
-    return namesMap;
-  });
-
-  // Add debugging flag
-  const isDebugMode = true;
-
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        console.log('Starting to fetch offers...');
-
-        // First check if we can connect to Supabase
-        const { data: testConnection, error: connectionError } = await supabase
-          .from('offers')
-          .select('count')
-          .limit(1);
-
-        if (connectionError) {
-          console.error('Supabase connection error:', connectionError);
-          setError(`Database connection error: ${connectionError.message}`);
-          return;
-        }
-
-        console.log('Successfully connected to Supabase');
-
-        // Fetch offers with detailed error logging
-        const { data: offersData, error: offersError } = await supabase
-          .from('offers')
-          .select(`
-            *,
-            project_plans:project_requests(id, status, created_at)
-          `)
-          .order('created_at', { ascending: false });
-
-        if (offersError) {
-          console.error('Error fetching offers:', offersError);
-          setError(`Failed to load offers: ${offersError.message}`);
-          return;
-        }
-
-        if (!offersData) {
-          console.warn('No offers data received');
-          setError('No offers data received from the server');
-          return;
-        }
-
-        console.log('Successfully fetched offers:', offersData.length);
-        
-        // Add detailed debugging for the specific offer
-        const specificOffer = offersData.find(o => o.id === 'a900599f-a7b4-4681-abfb-210ed65487a2');
-        if (specificOffer) {
-          console.log('IMPORTANT: Found specific offer in raw data:', specificOffer.id);
-          console.log('IMPORTANT: Raw project_plans data:', JSON.stringify(specificOffer.project_plans, null, 2));
-          console.log('IMPORTANT: Raw offer status:', specificOffer.status);
-        } else {
-          console.log('IMPORTANT: Specific offer not found in data');
-        }
-        
-        // Process offers to include project plan information
-        const processedOffers = offersData.map(offer => {
-          // If this is the specific offer we're interested in, log detailed debug info
-          if (offer.id === 'a900599f-a7b4-4681-abfb-210ed65487a2') {
-            console.log('DEBUG: Processing specific offer:', offer.id);
-            console.log('DEBUG: project_plans:', JSON.stringify(offer.project_plans, null, 2));
-          }
-          
-          // Check if this offer has requested a project plan
-          const hasProjectPlanRequest = Array.isArray(offer.project_plans) && offer.project_plans.length > 0;
-          
-          // Check if the project plan has been submitted - using case-insensitive comparison
-          const projectPlanSubmitted = hasProjectPlanRequest && 
-            offer.project_plans.some((plan: ProjectPlan) => 
-              plan.status.toUpperCase() === 'SUBMITTED'
-            );
-          
-          // Add more detailed logging for the specific offer
-          if (offer.id === 'a900599f-a7b4-4681-abfb-210ed65487a2') {
-            console.log('DEBUG: hasProjectPlanRequest:', hasProjectPlanRequest);
-            console.log('DEBUG: projectPlanSubmitted:', projectPlanSubmitted);
-            console.log('DEBUG: Combined status will be:', hasProjectPlanRequest && !projectPlanSubmitted ? 'Awaiting Project Plan' : 
-                                               (hasProjectPlanRequest && projectPlanSubmitted ? 'Project Plan Submitted' : offer.status));
-          }
-          
-          return {
-            ...offer,
-            project_plan_requested: hasProjectPlanRequest,
-            project_plan_submitted: projectPlanSubmitted
-          };
-        });
-        
-        console.log('Processed offers:', processedOffers.length);
-        setOffers(processedOffers);
-        setFilteredOffers(processedOffers);
-
-        // Fetch solutions with error handling
-        const { data: solutionsData, error: solutionsError } = await supabase
-          .from('solutions')
-          .select('*')
-          .order('name');
-
-        if (solutionsError) {
-          console.error('Error fetching solutions:', solutionsError);
-          // Don't return here, continue with default values
-        }
-
-        if (solutionsData && solutionsData.length > 0) {
-          console.log('Successfully fetched solutions:', solutionsData.length);
-          
-          const solutionsMap: Record<string, { id: string, name: string }> = {};
-          const namesMap: Record<string, string> = {};
-          
-          solutionsData.forEach(solution => {
-            solutionsMap[solution.id] = { 
-              id: solution.id, 
-              name: solution.name 
-            };
-            namesMap[solution.id] = solution.name;
-          });
-          
-          setProductCategories(solutionsMap);
-          setProductNames(namesMap);
-        } else {
-          console.log('No solutions found, using default values');
-        }
-
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-        console.error('Error in fetchData:', error);
-        setError(`Failed to load data: ${errorMessage}`);
-      } finally {
-        setLoading(false);
+    const fetchSolutionNames = async () => {
+      const names: { [key: string]: string } = {};
+      for (const offer of offers) {
+        const solutionName = await getSolutionName(offer.solution_id);
+        names[offer.solution_id] = solutionName;
       }
+      setSolutionNames(names);
     };
 
-    fetchData();
-  }, []);
-
-  // Get combined status that includes project plan information
-  const getCombinedStatus = (offer: Offer): string => {
-    // Add debug logging for our specific offer
-    if (offer.id === 'a900599f-a7b4-4681-abfb-210ed65487a2') {
-      console.log('DEBUG: getCombinedStatus for specific offer:', offer.id);
-      console.log('DEBUG: offer.status:', offer.status);
-      console.log('DEBUG: offer.project_plan_requested:', offer.project_plan_requested);
-      console.log('DEBUG: offer.project_plan_submitted:', offer.project_plan_submitted);
-    }
-
-    // Always prioritize project plan status conditions
-    if (offer.project_plan_requested === true) {
-      if (!offer.project_plan_submitted) {
-        return "Awaiting Project Plan";
-      } else {
-        return "Project Plan Submitted";
-      }
-    }
-    return offer.status;
-  };
-
-  // Update the getStatusColor function to include project plan statuses
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Draft':
-        return 'bg-gray-100 text-gray-800';
-      case 'Pending Approval':
-      case 'Pending':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'Approved':
-        return 'bg-green-100 text-green-800';
-      case 'Rejected':
-        return 'bg-red-100 text-red-800';
-      case 'Awaiting Project Plan':
-        return 'bg-orange-100 text-orange-800';
-      case 'Project Plan Submitted':
-        return 'bg-blue-100 text-blue-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // Apply status filter
-  useEffect(() => {
-    let result = [...offers];
-
-    // Apply search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(
-        offer =>
-          offer.customer_name.toLowerCase().includes(query) ||
-          offer.cui.toLowerCase().includes(query) ||
-          (productNames[offer.solution_id || '']?.toLowerCase?.() || '').includes(query)
-      );
-    }
-
-    // Apply solution filter
-    if (selectedProductType) {
-      console.log('Filtering offers by solution ID:', selectedProductType);
-      result = result.filter(offer => {
-        // Try all possible field names that might contain the solution ID
-        const offerSolutionId = offer.solution_id || offer.product_id;
-        
-        // Add more detailed logging to help debug the issue
-        if (offer.id) {
-          console.log(`Checking offer ${offer.id}: solution_id=${offer.solution_id}, product_id=${offer.product_id}, selected=${selectedProductType}`);
-        }
-        
-        // Check if any of them match the selected solution
-        return offerSolutionId === selectedProductType;
-      });
-    }
-
-    // Apply project type filter
-    if (selectedProjectType) {
-      result = result.filter(offer => offer.project_type_id === selectedProjectType);
-    }
-
-    // Apply status filter - updated to check combined status
-    if (selectedStatus) {
-      result = result.filter(offer => {
-        const combinedStatus = getCombinedStatus(offer);
-        return combinedStatus === selectedStatus;
-      });
-    }
-
-    // Apply pending project plans filter
-    if (showPendingProjectPlans) {
-      result = result.filter(offer => 
-        offer.project_plan_requested === true && 
-        (offer.project_plan_submitted === false || offer.project_plan_submitted === undefined)
-      );
-    }
-
-    console.log('Filtered offers:', result.length);
-    setFilteredOffers(result);
-  }, [searchQuery, selectedProductType, selectedProjectType, selectedStatus, showPendingProjectPlans, offers, productNames]);
-
-  // Calculate statistics based on filtered offers
-  const totalOffers = filteredOffers.length;
-  const approvedOffers = filteredOffers.filter(offer => offer.status === 'Approved').length;
-  const conversionRate = totalOffers > 0 ? Math.round((approvedOffers / totalOffers) * 100) : 0;
-  const pendingOffers = filteredOffers.filter(offer => offer.status === 'Pending').length;
-  
-  // Update the accepted value calculation to handle null values
-  const acceptedValue = filteredOffers
-    .filter(offer => offer.status === 'Approved')
-    .reduce((sum, offer) => sum + (offer.value || 0), 0);
-
-  // Get unique products for the filter dropdown
-  const uniqueProducts = Object.values(products).filter(product => 
-    offers.some(offer => offer.product_id === product.id)
-  );
-  
-  // Get unique project types for the filter dropdown
-  const uniqueProjectTypes = Object.values(projectTypes).filter(projectType => 
-    offers.some(offer => offer.project_type_id === projectType.id)
-  );
-
-  const handleDeleteOffer = async (offerId: string) => {
-    try {
-      // Delete the offer
-      const { error: offerError } = await supabase
-        .from('offers')
-        .delete()
-        .eq('id', offerId);
-
-      if (offerError) {
-        console.error('Error deleting offer:', offerError);
-        toast.error(`Failed to delete offer: ${offerError.message}`);
-        return;
-      }
-
-      // Update local state
-      setOffers(offers.filter(offer => offer.id !== offerId));
-      setFilteredOffers(filteredOffers.filter(offer => offer.id !== offerId));
-      toast.success('Offer deleted successfully');
-    } catch (error) {
-      console.error('Error in handleDeleteOffer:', error);
-      toast.error('An unexpected error occurred');
-    }
-  };
-
-  // Add a useEffect hook specifically for debugging solutions
-  useEffect(() => {
-    const checkSolutions = async () => {
-      try {
-        console.log('DEBUG: Directly querying solutions table...');
-        const { data, error } = await supabase
-          .from('solutions')
-          .select('*');
-        
-        if (error) {
-          console.error('DEBUG: Error fetching solutions:', error);
-        } else {
-          console.log('DEBUG: Raw solutions data:', JSON.stringify(data, null, 2));
-          console.log('DEBUG: Number of solutions:', data?.length || 0);
-        }
-      } catch (err) {
-        console.error('DEBUG: Exception in checkSolutions:', err);
-      }
-    };
-    
-    checkSolutions();
-  }, []);
-
-  // Add a useEffect to log offer ID fields after data is loaded
-  useEffect(() => {
-    if (offers.length > 0) {
-      console.log('OFFER FIELD DEBUG:');
-      console.log('First offer keys:', Object.keys(offers[0]));
-      const firstOffer = offers[0];
-      console.log('solution_id:', firstOffer.solution_id);
-      console.log('product_id:', firstOffer.product_id);
-      console.log('All solution IDs:', offers.map(o => o.solution_id || o.product_id));
-      
-      console.log('SOLUTION DEBUG:');
-      console.log('All solution names:', productNames);
-    }
-  }, [offers, productNames]);
-
-  // Add a new function to check the offers table schema
-  const checkOffersSchema = async () => {
-    try {
-      console.log('Checking offers table schema...');
-      
-      // Try to get the column names directly
-      const { data: columns, error: columnsError } = await supabase.rpc(
-        'get_columns_for_table',
-        { table_name: 'offers' }
-      );
-      
-      if (columnsError) {
-        console.error('Error fetching columns:', columnsError);
-      } else {
-        console.log('Offers table columns:', columns);
-      }
-      
-      // Try a direct query to check a single offer
-      if (offers.length > 0) {
-        const firstOfferId = offers[0].id;
-        
-        if (firstOfferId) {
-          const { data: offerData, error: offerError } = await supabase
-            .from('offers')
-            .select('*')
-            .eq('id', firstOfferId)
-            .single();
-            
-          if (offerError) {
-            console.error('Error fetching sample offer:', offerError);
-          } else {
-            console.log('Sample offer from direct query:', offerData);
-            console.log('Sample offer fields:', Object.keys(offerData));
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Error checking offers schema:', err);
-    }
-  };
-
-  // Call this function after offers are loaded
-  useEffect(() => {
-    if (offers.length > 0) {
-      checkOffersSchema();
-    }
+    fetchSolutionNames();
   }, [offers]);
 
-  // Add function to render project plan status badge
-  const renderProjectPlanStatus = (offer: Offer) => {
-    if (!offer.project_plan_requested) {
-      return null;
+  useEffect(() => {
+    const fetchProjectTypeNames = async () => {
+      const names: { [key: string]: string } = {};
+      for (const offer of offers) {
+        const projectTypeName = await getProjectTypeName(offer.project_type_id);
+        names[offer.project_type_id] = projectTypeName;
+      }
+      setProjectTypeNames(names);
+    };
+
+    fetchProjectTypeNames();
+  }, [offers]);
+
+  // Fetch data from Supabase
+  useEffect(() => {
+    const fetchOffers = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('offers')
+          .select('*');
+
+        if (error) {
+          console.error('Error fetching offers:', error);
+        }
+
+        setOffers(data || []);
+      } catch (error) {
+        console.error('Error fetching offers:', error);
+      }
+    };
+
+    fetchOffers();
+  }, []);
+
+  useEffect(() => {
+    const calculateStatusCounts = () => {
+      const counts = {
+        approved: 0,
+        pending: 0,
+        draft: 0,
+        rejected: 0,
+      };
+
+      offers.forEach((offer) => {
+        const status = offer.status.toLowerCase();
+        if (counts.hasOwnProperty(status)) {
+          counts[status as keyof typeof counts]++;
+        }
+      });
+
+      setStatusCounts(counts);
+    };
+
+    calculateStatusCounts();
+  }, [offers]);
+
+  // Available solutions and project types (would come from API in real app)
+  const solutions = ['Business Central', 'Timeqode', 'Finance and Operations'];
+  const projectTypes = ['Implementation', 'Enhancement', 'Support', 'Training'];
+
+  // Filter offers based on selected filters
+  const filteredOffers = offers.filter((offer: Offer) => {
+    const matchesStatus = statusFilter === 'all' || offer.status.toLowerCase() === statusFilter.toLowerCase();
+    const matchesSolution = solutionFilter === 'all' || offer.solution_id === solutionFilter;
+    const matchesProjectType = projectTypeFilter === 'all' || offer.project_type_id === projectTypeFilter;
+
+    return matchesStatus && matchesSolution && matchesProjectType;
+  });
+
+  // Get status badge class based on status
+  const getStatusClass = (status: string) => {
+    switch(status.toLowerCase()) {
+      case 'approved':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'draft':
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+      case 'rejected':
+        return 'bg-red-100 text-red-800 border-red-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
     }
-    
-    if (offer.project_plan_submitted) {
-      return (
-        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-          Project Plan Submitted
-        </span>
-      );
-    } else {
-      return (
-        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
-          Project Plan Pending
-        </span>
-      );
-    }
+  };
+
+  // Function to calculate chart bar widths based on status counts
+  const calculateBarWidth = (status: string) => {
+    const total = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
+    return total === 0 ? 0 : (statusCounts[status as keyof typeof statusCounts] / total) * 100;
   };
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto">
-        {/* Page header */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900">Offer Overview</h1>
-              <p className="mt-1 text-sm text-gray-500">Manage all your offers in one place</p>
-            </div>
-            <Link
-              to="/offers/new"
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
-            >
-              <Plus className="h-4 w-4 mr-2" />
+      {/* Header */}
+      <header className="border-b bg-white">
+        <div className="flex items-center justify-between p-4">
+          <div className="flex items-center space-x-2">
+            <FileText size={18} className="text-blue-600" />
+            <h1 className="font-medium text-lg">Offers Overview</h1>
+          </div>
+          <div className="flex items-center space-x-3">
+            <button className="px-3 py-1.5 rounded-md text-white text-sm font-medium bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors duration-200 flex items-center">
+              <Plus size={14} className="mr-1" />
               New Offer
-            </Link>
+            </button>
           </div>
-
-          {/* Statistics Cards */}
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {/* Total Offers */}
-            <div className="bg-white overflow-hidden shadow rounded-lg">
-              <div className="p-5">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <FileText className="h-6 w-6 text-gray-400" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">Total Offers</dt>
-                      <dd className="flex items-baseline">
-                        <div className="text-2xl font-semibold text-gray-900">{totalOffers}</div>
-                      </dd>
-                    </dl>
-                  </div>
+        </div>
+      </header>
+      <div className="flex flex-col h-screen bg-gray-50">
+        {/* Main Content */}
+        <main className="flex-1 overflow-auto p-6">
+          {/* Dashboard Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+            {/* Stats Overview Card */}
+            <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm col-span-full">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium text-gray-800">Overview</h3>
+                <div className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-medium">
+                  Current Month
                 </div>
               </div>
-            </div>
-
-            {/* Conversion Rate */}
-            <div className="bg-white overflow-hidden shadow rounded-lg">
-              <div className="p-5">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <FileText className="h-6 w-6 text-gray-400" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">Conversion Rate</dt>
-                      <dd className="flex items-baseline">
-                        <div className="text-2xl font-semibold text-gray-900">{conversionRate}%</div>
-                      </dd>
-                    </dl>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Accepted Value */}
-            <div className="bg-white overflow-hidden shadow rounded-lg">
-              <div className="p-5">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <FileText className="h-6 w-6 text-gray-400" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">Accepted Value</dt>
-                      <dd className="flex items-baseline">
-                        <div className="text-2xl font-semibold text-gray-900">
-                          €{acceptedValue.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          })}
-                        </div>
-                      </dd>
-                    </dl>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Pending Offers */}
-            <div className="bg-white overflow-hidden shadow rounded-lg">
-              <div className="p-5">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <FileText className="h-6 w-6 text-gray-400" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">Pending Offers</dt>
-                      <dd className="flex items-baseline">
-                        <div className="text-2xl font-semibold text-gray-900">{pendingOffers}</div>
-                        <p className="ml-2 flex items-baseline text-sm font-semibold text-yellow-600">
-                          Awaiting Response
-                        </p>
-                      </dd>
-                    </dl>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Status Distribution */}
-          <div className="mt-6 bg-white shadow rounded-lg p-4">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Status Distribution</h3>
-            <div className="flex gap-4">
-              <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full bg-yellow-400 mr-2"></div>
-                <span className="text-sm text-gray-600">
-                  {filteredOffers.filter(o => o.status === 'Pending').length} Pending
-                </span>
-              </div>
-              <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full bg-green-400 mr-2"></div>
-                <span className="text-sm text-gray-600">
-                  {filteredOffers.filter(o => o.status === 'Approved').length} Accepted
-                </span>
-              </div>
-              <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full bg-red-400 mr-2"></div>
-                <span className="text-sm text-gray-600">
-                  {filteredOffers.filter(o => o.status === 'Rejected').length} Rejected
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Filter Section - Updated */}
-          <div className="mt-8 bg-white shadow rounded-lg">
-            <div className="p-4 border-b border-gray-200">
-              <h2 className="text-base font-medium text-gray-700">Filter Offers</h2>
-            </div>
-            <div className="p-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {/* Search Input */}
-                <div>
-                  <label htmlFor="search" className="block text-sm font-medium text-gray-700">
-                    Search
-                  </label>
-                  <div className="mt-1 relative rounded-md shadow-sm">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Search className="h-4 w-4 text-gray-400" />
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="border border-gray-100 rounded-lg p-4 bg-gradient-to-br from-blue-50 to-white">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="text-xs font-medium text-gray-500">Total Offers</div>
+                    <div className="p-2 bg-blue-100 rounded-md">
+                      <FileText size={14} className="text-blue-600" />
                     </div>
+                  </div>
+                  <div className="text-2xl font-bold text-gray-800">
+                    {Object.values(statusCounts).reduce((sum, count) => sum + count, 0)}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    <span className="text-green-600">↑ 12%</span> vs last month
+                  </div>
+                </div>
+                
+                <div className="border border-gray-100 rounded-lg p-4 bg-gradient-to-br from-green-50 to-white">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="text-xs font-medium text-gray-500">Total Value</div>
+                  <div className="p-2 bg-green-100 rounded-md">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-600">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                      <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                  </div>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">
+                  {offers.reduce((sum, offer) => offer.value + sum, 0)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  <span className="text-green-600">↑ 12%</span> vs last month
+                </div>
+              </div>
+                
+                <div className="border border-gray-100 rounded-lg p-4 bg-gradient-to-br from-green-50 to-white">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="text-xs font-medium text-gray-500">Approved</div>
+                    <div className="p-2 bg-green-100 rounded-md">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-600">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-gray-800">{statusCounts.approved}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    <span className="text-green-600">↑ 8%</span> vs last month
+                  </div>
+                </div>
+                
+                <div className="border border-gray-100 rounded-lg p-4 bg-gradient-to-br from-red-50 to-white">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="text-xs font-medium text-gray-500">Conversion Rate</div>
+                    <div className="p-2 bg-red-100 rounded-md">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-600">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <polyline points="19 12 12 19 5 12"></polyline>
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-gray-800">
+                    {Object.values(statusCounts).reduce((sum, count) => sum + count, 0) === 0 ? 
+                      '0%' : 
+                      `${Math.round((statusCounts.approved / Object.values(statusCounts).reduce((sum, count) => sum + count, 0)) * 100)}%`
+                  }
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    <span className="text-green-600">↑ 5%</span> vs last month
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Status Distribution Chart */}
+            <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm row-span-1 col-span-1 md:col-span-2">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-medium text-gray-800">Status Distribution</h3>
+                <div className="flex space-x-2">
+                  <button className="px-2 py-1 text-xs bg-blue-50 text-blue-600 rounded">Weekly</button>
+                  <button className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">Monthly</button>
+                </div>
+              </div>
+              
+              <div className="h-10 w-full bg-gray-100 rounded-lg overflow-hidden flex mb-4">
+                {calculateBarWidth('approved') > 0 && (
+                  <div 
+                    className="h-full bg-green-500 flex items-center justify-center transition-all duration-500"
+                    style={{ width: `${calculateBarWidth('approved')}%` }}
+                  >
+                    {calculateBarWidth('approved') >= 10 && (
+                      <span className="text-xs text-white font-medium">
+                        {statusCounts.approved}
+                      </span>
+                    )}
+                  </div>
+                )}
+                
+                {calculateBarWidth('pending') > 0 && (
+                  <div 
+                    className="h-full bg-yellow-500 flex items-center justify-center transition-all duration-500"
+                    style={{ width: `${calculateBarWidth('pending')}%` }}
+                  >
+                    {calculateBarWidth('pending') >= 10 && (
+                      <span className="text-xs text-white font-medium">
+                        {statusCounts.pending}
+                      </span>
+                    )}
+                  </div>
+                )}
+                
+                {calculateBarWidth('draft') > 0 && (
+                  <div 
+                    className="h-full bg-gray-500 flex items-center justify-center transition-all duration-500"
+                    style={{ width: `${calculateBarWidth('draft')}%` }}
+                  >
+                    {calculateBarWidth('draft') >= 10 && (
+                      <span className="text-xs text-white font-medium">
+                        {statusCounts.draft}
+                      </span>
+                    )}
+                  </div>
+                )}
+                
+                {calculateBarWidth('rejected') > 0 && (
+                  <div 
+                    className="h-full bg-red-500 flex items-center justify-center transition-all duration-500"
+                    style={{ width: `${calculateBarWidth('rejected')}%` }}
+                  >
+                    {calculateBarWidth('rejected') >= 10 && (
+                      <span className="text-xs text-white font-medium">
+                        {statusCounts.rejected}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="flex items-center">
+                  <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                  <span className="text-xs text-gray-600">Approved ({statusCounts.approved})</span>
+                </div>
+                
+                <div className="flex items-center">
+                  <div className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
+                  <span className="text-xs text-gray-600">Pending ({statusCounts.pending})</span>
+                </div>
+                
+                <div className="flex items-center">
+                  <div className="w-3 h-3 bg-gray-500 rounded-full mr-2"></div>
+                  <span className="text-xs text-gray-600">Draft ({statusCounts.draft})</span>
+                </div>
+                
+                <div className="flex items-center">
+                  <div className="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
+                  <span className="text-xs text-gray-600">Rejected ({statusCounts.rejected})</span>
+                </div>
+              </div>
+            </div>
+            
+            {/* Recent Activity */}
+            <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
+              <h3 className="font-medium text-gray-800 mb-4">Recent Activity</h3>
+              <div className="space-y-4">
+                <div className="flex items-start space-x-3">
+                  <div className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-600">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                      <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm">
+                      <span className="font-medium">OF-2025-032</span> was approved
+                    </p>
+                    <span className="text-xs text-gray-500">Today, 10:30 AM</span>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-3">
+                  <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-600">
+                      <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"></path>
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm">
+                      <span className="font-medium">OF-2025-028</span> was submitted for approval
+                    </p>
+                    <span className="text-xs text-gray-500">Yesterday, 4:15 PM</span>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-3">
+                  <div className="h-8 w-8 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-yellow-600">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm">
+                      <span className="font-medium">OF-2025-035</span> is pending review
+                    </p>
+                    <span className="text-xs text-gray-500">March 15, 2025</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Advanced Search and Filters */}
+          <div className="bg-white rounded-lg border border-gray-200 mb-6">
+            <div className="p-4">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center space-x-3 flex-1 flex-wrap gap-y-2 text-xs">
+                  <div className="relative max-w-sm flex-1 min-w-[200px]">
                     <input
                       type="text"
-                      name="search"
-                      id="search"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md"
                       placeholder="Search offers..."
+                      className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
+                    <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
                   </div>
-                </div>
-
-                {/* Product Category Filter */}
-                <div>
-                  <label htmlFor="productCategory" className="block text-sm font-medium text-gray-700">
-                    Solution
-                  </label>
+                  
                   <select
-                    id="productCategory"
-                    name="productCategory"
-                    value={selectedProductType}
-                    onChange={(e) => {
-                      console.log('Selected solution ID:', e.target.value);
-                      setSelectedProductType(e.target.value);
-                    }}
-                    className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                    className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
                   >
-                    <option value="">All Solutions</option>
-                    {Object.keys(productCategories).length > 0 ? (
-                      Object.entries(productCategories)
-                        .sort(([, a], [, b]) => a.name.localeCompare(b.name))
-                        .map(([id, category]) => (
-                          <option key={id} value={id}>
-                            {category.name}
-                          </option>
-                        ))
-                    ) : (
-                      // Fallback options if productCategories is empty
-                      [
-                        { id: '1', name: 'Business Central' },
-                        { id: '2', name: 'Finance & Operations' },
-                        { id: '3', name: 'Timeqode' }
-                      ].map(category => (
-                        <option key={category.id} value={category.id}>
-                          {category.name}
-                        </option>
-                      ))
-                    )}
+                    <option value="all">All Statuses</option>
+                    <option value="approved">Approved</option>
+                    <option value="pending">Pending</option>
+                    <option value="draft">Draft</option>
+                    <option value="rejected">Rejected</option>
                   </select>
-                </div>
-
-                {/* Project Type Filter */}
-                <div>
-                  <label htmlFor="projectType" className="block text-sm font-medium text-gray-700">
-                    Project Type
-                  </label>
+                  
                   <select
-                    id="projectType"
-                    name="projectType"
-                    value={selectedProjectType}
-                    onChange={(e) => setSelectedProjectType(e.target.value)}
-                    className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                    className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    value={solutionFilter}
+                    onChange={(e) => setSolutionFilter(e.target.value)}
                   >
-                    <option value="">All Project Types</option>
-                    {uniqueProjectTypes.map((projectType) => (
-                      <option key={projectType.id} value={projectType.id}>
-                        {projectType.name}
-                      </option>
+                    <option value="all">All Solutions</option>
+                    {solutions.map(solution => (
+                      <option key={solution} value={solution}>{solution}</option>
+                    ))}
+                  </select>
+                  
+                  <select
+                    className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    value={projectTypeFilter}
+                    onChange={(e) => setProjectTypeFilter(e.target.value)}
+                  >
+                    <option value="all">All Project Types</option>
+                    {projectTypes.map(type => (
+                      <option key={type} value={type}>{type}</option>
                     ))}
                   </select>
                 </div>
-
-                {/* Status Filter */}
-                <div>
-                  <label htmlFor="status" className="block text-sm font-medium text-gray-700">
-                    Status
-                  </label>
-                  <select
-                    id="status"
-                    name="status"
-                    value={selectedStatus}
-                    onChange={(e) => setSelectedStatus(e.target.value)}
-                    className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-                  >
-                    <option value="">All Statuses</option>
-                    <option value="Draft">Draft</option>
-                    <option value="Pending">Pending</option>
-                    <option value="Approved">Approved</option>
-                    <option value="Rejected">Rejected</option>
-                    <option value="Awaiting Project Plan">Awaiting Project Plan</option>
-                    <option value="Project Plan Submitted">Project Plan Submitted</option>
-                  </select>
-                </div>
-
-                {/* Project Plan Filter */}
-                <div className="col-span-1 lg:col-span-4 mt-2">
-                  <div className="flex items-center">
-                    <input
-                      id="filter-pending-project-plans"
-                      name="filter-pending-project-plans"
-                      type="checkbox"
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                      checked={showPendingProjectPlans}
-                      onChange={(e) => setShowPendingProjectPlans(e.target.checked)}
-                    />
-                    <label htmlFor="filter-pending-project-plans" className="ml-2 block text-sm text-gray-700">
-                      Show only offers awaiting project plans from operations
-                    </label>
-                  </div>
-                </div>
+                
+                <button className="px-3 py-2 rounded-md text-gray-700 text-xs font-medium bg-white border border-gray-300 shadow-sm hover:bg-gray-50 transition-colors duration-200 flex items-center">
+                  <Download size={14} className="mr-1" />
+                  Export
+                </button>
               </div>
-
-              {/* Active Filters */}
-              {(searchQuery || selectedProductType || selectedProjectType || selectedStatus || showPendingProjectPlans) && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {searchQuery && (
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-                      Search: {searchQuery}
-                      <button
-                        onClick={() => setSearchQuery('')}
-                        className="ml-2 inline-flex text-blue-400 hover:text-blue-600"
-                      >
-                        <span className="sr-only">Remove</span>
-                        ×
-                      </button>
-                    </span>
-                  )}
-                  {selectedProductType && (
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
-                      Solution: {productCategories[selectedProductType]?.name || 'Unknown'}
-                      <button
-                        onClick={() => setSelectedProductType('')}
-                        className="ml-2 inline-flex text-purple-400 hover:text-purple-600"
-                      >
-                        <span className="sr-only">Remove</span>
-                        ×
-                      </button>
-                    </span>
-                  )}
-                  {selectedProjectType && (
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                      Project: {projectTypeNames[selectedProjectType]}
-                      <button
-                        onClick={() => setSelectedProjectType('')}
-                        className="ml-2 inline-flex text-green-400 hover:text-green-600"
-                      >
-                        <span className="sr-only">Remove</span>
-                        ×
-                      </button>
-                    </span>
-                  )}
-                  {selectedStatus && (
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-                      Status: {selectedStatus}
-                      <button
-                        onClick={() => setSelectedStatus('')}
-                        className="ml-2 inline-flex text-blue-400 hover:text-blue-600"
-                      >
-                        <span className="sr-only">Remove</span>
-                        ×
-                      </button>
-                    </span>
-                  )}
-                  {showPendingProjectPlans && (
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
-                      Awaiting Project Plans
-                      <button
-                        onClick={() => setShowPendingProjectPlans(false)}
-                        className="ml-2 inline-flex text-yellow-400 hover:text-yellow-600"
-                      >
-                        <span className="sr-only">Remove</span>
-                        ×
-                      </button>
-                    </span>
-                  )}
-                </div>
-              )}
             </div>
           </div>
-        </div>
 
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 text-red-700 border-l-4 border-red-400 rounded">
-            {error}
-          </div>
-        )}
-
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
-            <p className="mt-4 text-gray-600">Loading offers...</p>
-          </div>
-        ) : filteredOffers.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-lg shadow">
-            <FileText className="mx-auto h-12 w-12 text-gray-400" />
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No offers found</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              {offers.length > 0 
-                ? 'Try adjusting your filters to see more results.'
-                : 'Get started by creating a new offer.'}
-            </p>
-            <div className="mt-6">
-              <Link
-                to="/offers/new"
-                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                New Offer
-              </Link>
+          {/* Offers Table */}
+          <div className="bg-white rounded-lg border border-gray-200">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h2 className="font-medium">Offers ({filteredOffers.length})</h2>
             </div>
-          </div>
-        ) : (
-          <div className="mt-8">
+            
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="w-full">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-500 border-b border-gray-200">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CUI</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Solution</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project Type</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    <th className="px-6 py-3 text-left">Client</th>
+                    <th className="px-6 py-3 text-left">Solution</th>
+                    <th className="px-6 py-3 text-left">Project Type</th>
+                                         <th className="px-6 py-3 text-right">Value</th>
+                                         <th className="px-6 py-3 text-center">Status</th>
+                    <th className="px-6 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredOffers.map((offer) => (
-                    <tr key={offer.id}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Link
-                          to={`/offers/${offer.id}`}
-                          className="text-sm font-medium text-gray-900 hover:text-blue-600"
-                        >
-                          {offer.customer_name}
-                        </Link>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{offer.cui}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {(() => {
-                            const solutionId = offer.solution_id || offer.product_id;
-                            if (solutionId && productNames[solutionId]) {
-                              return productNames[solutionId];
-                            }
-                            return 'N/A';
-                          })()}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{projectTypeNames[offer.project_type_id || ''] || 'N/A'}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{formatCurrency(offer.value)}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={cn(
-                          "px-2 inline-flex text-xs leading-5 font-semibold rounded-full",
-                          getStatusColor(getCombinedStatus(offer))
-                        )}>
-                          {getCombinedStatus(offer)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {offer.created_at ? new Date(offer.created_at).toLocaleDateString() : '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        {offer.status === 'Draft' && (
-                          <button
-                            onClick={() => handleDeleteOffer(offer.id || '')}
-                            className="text-red-600 hover:text-red-900"
-                            title="Delete offer"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
+                <tbody className="divide-y divide-gray-200">
+                  {filteredOffers.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
+                        No offers match your filter criteria
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredOffers.map((offer: Offer) => (
+                      <tr key={offer.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap font-medium text-sm">{offer.customer_name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">{solutionNames[offer.solution_id]}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">{projectTypeNames[offer.project_type_id]}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-right">{offer.value}</td>
+                                                                         <td className="px-6 py-4 whitespace-nowrap">
+                                                                           <div className="flex justify-center">
+                                                                             <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(offer.status)}`}>
+                                                                               {offer.status}
+                                                                             </span>
+                                                                           </div>
+                                                                         </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                  <div className="flex justify-end space-x-2">
+                            <button className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                <line x1="14" y1="11" x2="14" y2="17"></line>
+                              </svg>
+                            </button>
+                            <button className="p-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
-        )}
+        </main>
       </div>
     </Layout>
   );
-} 
+};
+
+export default SavedOffersView;

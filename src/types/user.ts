@@ -13,6 +13,9 @@ export interface User {
   last_name: string
   created_at: string
   updated_at: string
+  user_metadata?: {
+    full_name?: string;
+  };
 }
 
 export interface UserPermissions {

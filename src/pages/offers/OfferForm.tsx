@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronUp, Calendar, FileText } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { supabase } from '../../supabaseClient';
 
 const ContractifyRedesign = () => {
+  const { offerId } = useParams();
   const [productInfoOpen, setProductInfoOpen] = useState(true);
   const [approvalInfoOpen, setApprovalInfoOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState('timeqode');
-  const [licenses, setLicenses] = useState([{ 
+  const [licenses, setLicenses] = useState([{
     id: 1,
     type: '',
     quantity: 1,
@@ -16,6 +19,31 @@ const ContractifyRedesign = () => {
     totalValue: 0,
     marginValue: 0
   }]);
+  const [offerData, setOfferData] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchOfferData = async () => {
+      if (offerId) {
+        try {
+          const { data, error } = await supabase
+            .from('offers')
+            .select('*')
+            .eq('id', offerId)
+            .single();
+
+          if (error) {
+            console.error('Error fetching offer:', error);
+          }
+
+          setOfferData(data || null);
+        } catch (error) {
+          console.error('Error fetching offer:', error);
+        }
+      }
+    };
+
+    fetchOfferData();
+  }, [offerId]);
 
   // Calculate total values
   const calculateTotals = () => {
@@ -71,29 +99,12 @@ const ContractifyRedesign = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className="flex flex-col bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2 text-blue-600 font-semibold">
-            <FileText size={20} />
-            <span className="text-lg">Binds.io</span>
-          </div>
-          <div className="h-6 w-px bg-gray-300"></div>
-          <div className="flex items-center space-x-2">
-            <FileText size={18} className="text-blue-600" />
-            <h1 className="text-lg font-medium">New Offer</h1>
-          </div>
-        </div>
-        <div className="flex items-center space-x-4">
-          <div className="text-sm px-3 py-1 bg-gray-100 rounded text-gray-500">Draft</div>
-          <div className="flex items-center space-x-2">
-            <div className="h-8 w-8 bg-blue-600 rounded-full text-white flex items-center justify-center font-semibold">SN</div>
-            <div className="text-sm font-medium">Silviu Niculeci</div>
-          </div>
-        </div>
+        <h1 className="text-lg font-medium">New Offer</h1>
+        <div className="text-sm px-3 py-1 bg-gray-100 rounded text-gray-500">Draft</div>
       </div>
-
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
         {/* Form Content */}
@@ -109,18 +120,20 @@ const ContractifyRedesign = () => {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Client</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Client name"
+                      value={offerData?.customer_name || ''}
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">CUI (VAT)</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Client identifier"
+                      value={offerData?.cui || ''}
                     />
                   </div>
                 </div>

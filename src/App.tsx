@@ -1,26 +1,30 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import Sidebar from './components/Sidebar'
-import { Toaster } from 'sonner'
-import Login from './pages/Login'
-import ProjectList from './pages/projects/ProjectList'
-import TestPage from './pages/TestPage'
-import ProjectForm from './pages/projects/ProjectForm'
-import OfferForm from './pages/offers/OfferForm'
-import './App.css'
-import RoleBasedRoute from './components/RoleBasedRoute'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import Sidebar from './components/Sidebar';
+import { Toaster } from 'sonner';
+import Login from './pages/Login';
+import ProjectList from './pages/projects/ProjectList';
+import TestPage from './pages/TestPage';
+import ProjectForm from './pages/projects/ProjectForm';
+import OfferForm from './pages/offers/OfferForm';
+import OffersList from './pages/offers/OffersList';
+import Profile from './pages/Profile';
+import './App.css';
+import RoleBasedRoute from './components/RoleBasedRoute';
+import { useAuth } from './contexts/AuthContext';
 
 // Simplified App component with minimal routes
 function App() {
   console.log('App component rendering');
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
+  const { user } = useAuth();
 
   return (
     <div className="bg-gray-50 h-screen flex">
       <Toaster position="top-right" richColors />
-      
+
       {/* Navigation Sidebar */}
-      {!isLoginPage && <Sidebar />}
+      {!isLoginPage && location.pathname !== '/offers' && <Sidebar />}
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
         <Routes>
@@ -32,6 +36,8 @@ function App() {
               <ProjectForm />
             </RoleBasedRoute>
           } />
+          <Route path="/offers" element={<OffersList />} />
+          <Route path="/offers/:offerId" element={<OfferForm />} />
           <Route path="/offers/new" element={<OfferForm />} />
           <Route path="/projects/:projectId/edit" element={
             <RoleBasedRoute allowedRoles={['ADMIN', 'MANAGER', 'OPERATIONS']}>
@@ -54,11 +60,21 @@ function App() {
               </div>
             </div>
           } />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route
+            path="*"
+            element={
+              user ? (
+                <Navigate to="/" replace />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+          <Route path="/profile" element={<Profile />} />
         </Routes>
       </main>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

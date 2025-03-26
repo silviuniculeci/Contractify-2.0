@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   FileText, 
   User, 
@@ -25,6 +25,7 @@ interface UserRoleResponse {
 export default function Sidebar() {
   const { user, signOut } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -65,6 +66,7 @@ export default function Sidebar() {
 
   const handleSignOut = async () => {
     await signOut();
+    navigate('/login');
   };
 
   if (!user) return null;
@@ -112,8 +114,8 @@ export default function Sidebar() {
     >
       {/* Logo */}
       <div className="p-4 border-b border-gray-200">
-        <Link 
-          to={userRole === 'OPERATIONAL_MANAGER' ? '/projects' : '/offers'} 
+        <button
+          onClick={() => navigate(userRole === 'OPERATIONAL_MANAGER' ? '/projects' : '/offers')}
           className={`flex items-center ${isCollapsed ? 'justify-center' : ''}`}
         >
           <FileText className="h-8 w-8 text-blue-600 flex-shrink-0" />
@@ -122,7 +124,7 @@ export default function Sidebar() {
               Contractify
             </span>
           )}
-        </Link>
+        </button>
       </div>
 
       {/* Navigation */}
@@ -132,8 +134,8 @@ export default function Sidebar() {
           {userRole !== 'OPERATIONAL_MANAGER' && (
             <>
               {/* Offers List */}
-              <Link
-                to="/offers"
+              <button
+                onClick={() => navigate('/offers')}
                 className={`flex items-center px-3 py-2 mx-2 text-sm font-medium rounded-md ${
                   location.pathname === '/offers'
                     ? 'bg-blue-50 text-blue-700'
@@ -142,7 +144,7 @@ export default function Sidebar() {
               >
                 <FileText className="h-5 w-5 flex-shrink-0" />
                 {!isCollapsed && <span className="ml-3">Offers</span>}
-              </Link>
+              </button>
 
               {/* New Offer */}
               <Link

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Search, Download, Plus, Filter } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { supabase } from '../../supabaseClient';
+
 
 interface Offer {
   id: string;
@@ -503,19 +505,23 @@ const SavedOffersView = () => {
                   ) : (
                     filteredOffers.map((offer: Offer) => (
                       <tr key={offer.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap font-medium text-sm">{offer.customer_name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap font-medium text-sm">
+                          <Link to={`/offers/${offer.id}`} className="text-blue-600 hover:underline">
+                            {offer.customer_name}
+                          </Link>
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">{solutionNames[offer.solution_id]}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{projectTypeNames[offer.project_type_id]}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-right">{offer.value}</td>
-                                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                                           <div className="flex justify-center">
-                                                                             <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(offer.status)}`}>
-                                                                               {offer.status}
-                                                                             </span>
-                                                                           </div>
-                                                                         </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                  <div className="flex justify-end space-x-2">
+                        <td className="px-6 py-4 whitespace-nowrap text-right">{offer.value}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex justify-center">
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(offer.status)}`}>
+                              {offer.status}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <div className="flex justify-end space-x-2">
                             <button className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
                               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <polyline points="3 6 5 6 21 6"></polyline>
